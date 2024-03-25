@@ -6,7 +6,40 @@ import scipy as sp
 import math
 import matplotlib.pyplot as plt
 
-## Subroutines
+## Error calculations
+##
+
+def calc_error(w, y, norm=2, type="rel"):
+    """
+    Calculate the error between vectors y and w as well as the norm of the error
+    
+    ### Parameters
+        @w: vector of approximations
+        @y: vector of actual values
+        @norm: type of norm to use, default L2
+        @type: type of error to use, default relative error
+
+    ### Returns
+        (error_vec, error_norm)
+    """
+
+    # Make sure error and actual vector are the same length
+    if len(w) != len(y):
+        print("ERROR IN calcError(): VECTORS ARE NOT SAME LENGTH")
+        return
+    
+    error_vec = np.zeros(len(w))
+    for j in range(0, len(w)):
+        if type == "rel":
+            error_vec[j] = abs(w[j] - y[j]) / abs(y[j])
+        elif type == "abs":
+            error_vec[j] = abs(w[j] - y[j])
+        
+    err_norm = np.linalg.norm(error_vec, ord=norm)
+
+    return error_vec, err_norm
+
+## Approximators
 ##
 
 def RKm(m, f, a, b, alpha, N=0, h=0, debug=False):
@@ -15,7 +48,7 @@ def RKm(m, f, a, b, alpha, N=0, h=0, debug=False):
     Choose a value for h or N, but not both
 
     ### Parameters
-        @m: Number of previous approximations to use in creation of next approximation
+        @m: Order of method
         @f: Differential equation y' = f(t, y)
         @a: left endpoint
         @b: right endpoint
@@ -25,8 +58,10 @@ def RKm(m, f, a, b, alpha, N=0, h=0, debug=False):
         @debug: True to output debugging information, default False
 
     ### Returns
+        (t_vec, w_vec)
     """
 
+    # Debugging
     if debug:
         print("--------------------------------")
         print(f"Initializing order {m} Runge-Kutta...")
@@ -39,18 +74,18 @@ def RKm(m, f, a, b, alpha, N=0, h=0, debug=False):
         print("ERROR IN RKm(): MUST SPECIFY VALUE FOR N or h.")
         return
     
-    # Compute h, N, and t_vec
+    # Compute h and N, construct t_vec
     if N == 0:
         print("ERROR IN RKm(): NOT IMPLEMENTED CALCULATING h")
     elif h == 0:
         h = (b - a) / N
     t_vec = np.arange(a, b + h/10, h)
 
-    # Initialize w_vec
+    # Initialize w_vec with initial data
     w_vec = np.zeros(N + 1)
     w_vec[0] = alpha
 
-    # Compute coefficients based on m
+    # Compute b coefficiets based on order m
     # w_(j+1) = w_j + h_m[b_(m-1)f(t_j, w_j) + ... + b_(0)f(t_(i-m+1), w_(i-m+1))]
     k_vec = np.zeros(m)
     b_vec = np.zeros(m)
@@ -67,7 +102,7 @@ def RKm(m, f, a, b, alpha, N=0, h=0, debug=False):
         k_1j = lambda j: f(t_vec[j], w_vec[j])
         k_2j = lambda j: f(t_vec[j] + (h/2), w_vec[j] + (h*k_1j(j) / 2))
         k_3j = lambda j: f(t_vec[j] + (h/2), w_vec[j] + (h*k_2j(j) / 2))
-        k_4j = lambda j: f(t_vec[j+1], w_vec[j] + k_3j(j))
+        k_4j = lambda j: f(t_vec[j+1], w_vec[j] + h*k_3j(j))
         k_vec = lambda j: np.array([k_1j(j), k_2j(j), k_3j(j), k_4j(j)])
     else:
         print("ERROR IN RKm(): THIS VALUE OF m NOT IMPLEMENTED")
@@ -89,7 +124,6 @@ def RKm(m, f, a, b, alpha, N=0, h=0, debug=False):
 
     return (t_vec, w_vec)
     
-
 def mStepExplicitAB(m, f, a, b, alpha, order, N=0, h=0, debug=False):
     """ 
     Runs an m-step explicit Adams-Bashforth method
@@ -107,8 +141,10 @@ def mStepExplicitAB(m, f, a, b, alpha, order, N=0, h=0, debug=False):
         @debug: True to output debugging information, default False
 
     ### Returns
+        (t_vec, w_vec)
     """
 
+    # Debugging
     if debug:
         print("----------------------------------------")
         print(f"Initializing {m}-step explicit Adams-Bashforth...")
@@ -121,7 +157,7 @@ def mStepExplicitAB(m, f, a, b, alpha, order, N=0, h=0, debug=False):
         print("ERROR IN mStepExplicitAB(): MUST SPECIFY VALUE FOR N or h.")
         return
    
-    # Compute h, N, and t_vec
+    # Compute h and N, construct t_vec
     if N == 0:
         print("ERROR IN mStepExplicitAB(): NOT IMPLEMENTED CALCULATING h")
     elif h == 0:
@@ -137,7 +173,7 @@ def mStepExplicitAB(m, f, a, b, alpha, order, N=0, h=0, debug=False):
     for j in range(len(init_vec)):
         w_vec[j] = init_vec[j]
 
-    # Compute coefficients based on m
+    # Compute b coefficients based on m
     # w_(j+1) = w_j + h_m[b_(m-1)f(t_j, w_j) + ... + b_(0)f(t_(i-m+1), w_(i-m+1))]
     b_vec = np.zeros(m)
     h_m = 0
