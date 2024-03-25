@@ -26,6 +26,10 @@ def RKm(m, f, a, b, alpha, N=0, h=0, debug=False):
 
     ### Returns
     """
+
+    if debug:
+        print("--------------------------------")
+        print(f"Initializing order {m} Runge-Kutta...")
     
     # Check arguments were passed correctly
     if m <= 0:
@@ -37,7 +41,7 @@ def RKm(m, f, a, b, alpha, N=0, h=0, debug=False):
     
     # Compute h, N, and t_vec
     if N == 0:
-        print("ERROR IN mStepExplicitAB(): NOT IMPLEMENTED CALCULATING h")
+        print("ERROR IN RKm(): NOT IMPLEMENTED CALCULATING h")
     elif h == 0:
         h = (b - a) / N
     t_vec = np.arange(a, b + h/10, h)
@@ -71,11 +75,12 @@ def RKm(m, f, a, b, alpha, N=0, h=0, debug=False):
     
     # Debugging
     if debug:
-        print("-------------------")
         print(f"Order m = {m}")
-        print(f"h = {h}, N = {N}")
-        print(f"a = {a}, b = {b}")
-        print(f"(t_0, y({a})) = (t_0, w_0) = ({t_vec[0]}, {w_vec[0]})")
+        print(f"Step size h = {h}")
+        print(f"Number of intervals N = {N}")
+        print(f"Left endpoint a = {a}")
+        print(f"Right endpoint b = {b}")
+        print(f"Initial data: (t_0, w_0) = (a, alpha) = ({t_vec[0]}, {w_vec[0]})")
         print("\nRunning method...")
     
     # The method itself
@@ -85,7 +90,7 @@ def RKm(m, f, a, b, alpha, N=0, h=0, debug=False):
     return (t_vec, w_vec)
     
 
-def mStepExplicitAB(m, f, a, b, alpha_vec, N=0, h=0, debug=False):
+def mStepExplicitAB(m, f, a, b, alpha, order, N=0, h=0, debug=False):
     """ 
     Runs an m-step explicit Adams-Bashforth method
     Choose a value for h or N, but not both
@@ -95,7 +100,8 @@ def mStepExplicitAB(m, f, a, b, alpha_vec, N=0, h=0, debug=False):
         @f: Differential equation y' = f(t, y)
         @a: left endpoint
         @b: right endpoint
-        @alpha_vec: y_0 = w_0 = alphaVec[0], ..., w_(m-1) = alphaVec[m-1]
+        @alpha: y_0 = w_0 = alpha
+        @order: order of RK method to use to create initial data
         @N: number of intervals, (N + 1) total meshpoints including t = a
         @h: length of interval
         @debug: True to output debugging information, default False
@@ -103,12 +109,13 @@ def mStepExplicitAB(m, f, a, b, alpha_vec, N=0, h=0, debug=False):
     ### Returns
     """
 
+    if debug:
+        print("----------------------------------------")
+        print(f"Initializing {m}-step explicit Adams-Bashforth...")
+
     # Check arguments were passed correctly
     if m <= 0:
         print("ERROR IN mStepExplicitAB(): NEED m > 0.")
-        return
-    if len(alpha_vec) != m:
-        print("ERROR IN mStepExplicitAB(): AMOUNT OF INITIAL DATA DOES NOT MATCH VALUE OF m")
         return
     if N == 0 and h == 0:
         print("ERROR IN mStepExplicitAB(): MUST SPECIFY VALUE FOR N or h.")
@@ -121,10 +128,14 @@ def mStepExplicitAB(m, f, a, b, alpha_vec, N=0, h=0, debug=False):
         h = (b - a) / N
     t_vec = np.arange(a, b + h/10, h)
 
-    # Initialize w_vec
+    # Create initial data using RK and initialize w_vec
+    # Endpoint b is set so length of init_vec is equivalent to m
+    if debug:
+        print("Constructing initial data using RK...")
+    _, init_vec = RKm(order, f, a, a + h*(m-1), alpha, m - 1, debug=debug)
     w_vec = np.zeros(N + 1)
-    for j in range(len(alpha_vec)):
-        w_vec[j] = alpha_vec[j]
+    for j in range(len(init_vec)):
+        w_vec[j] = init_vec[j]
 
     # Compute coefficients based on m
     # w_(j+1) = w_j + h_m[b_(m-1)f(t_j, w_j) + ... + b_(0)f(t_(i-m+1), w_(i-m+1))]
@@ -151,19 +162,32 @@ def mStepExplicitAB(m, f, a, b, alpha_vec, N=0, h=0, debug=False):
     
     # Debugging
     if debug:
-        print("-------------------")
-        print(f"m = {m}")
-        print(f"h = {h}, N = {N}")
-        print(f"a = {a}, b = {b}")
-        print(f"(t_0, y({a})) = (t_0, w_0) = ({t_vec[0]}, {w_vec[0]})")
+        print(f"Number of steps m = {m}")
+        print(f"Step size h = {h}")
+        print(f"Number of intervals N = {N}")
+        print(f"Left endpoint a = {a}")
+        print(f"Right endpoint b = {b}")
+        print(f"Length of t_vec: {t_vec.shape}")
+        print(f"Length of init_vec: {init_vec.shape}")
+        print(f"Length of w_vec: {w_vec.shape}")
+        print(f"Initial point: (t_0, w_0) = (a, alpha) = ({t_vec[0]}, {w_vec[0]})")
+        print(f"Initial data generated from RK:")
         w_stat = [f"(t_{j}, w_{j}) = ({t_vec[j]}, {w_vec[j]})" for j in range(1, m)]
         for w in w_stat: print(w)
         print("\nRunning method...")
 
     # The method itself
-    f_eval_vec = np.array([f(t_vec[k], w_vec[k]) for k in range(0, N + 1)])
-    for j in range(m - 1, N):
-        w_vec[j+1] = w_vec[j] + h_m * (np.dot(f_eval_vec[j-m+1:j+1], b_vec))
+    # Create the first m function evaluations
+    f_eval_vec = np.array([f(t_vec[k], w_vec[k]) for k in range(0, m)])
+    for j in range(m-1, N):
+        # Compute next iteration
+        w_vec[j+1] = w_vec[j] + h_m * (np.dot(f_eval_vec, b_vec))
+        # Update function evaluations
+        if j+1 < N:
+            # Slide all elements to the left by 1
+            f_eval_vec[:-1] = f_eval_vec[1:]
+            # Replace last element with new evaluation
+            f_eval_vec[-1] = f(t_vec[j+1], w_vec[j+1])
         if debug:
             print(f"j = {j}")
             t_stat = [f"(t_{k}, w_{k})" for k in range(j-m+1, j+1)]
@@ -172,14 +196,3 @@ def mStepExplicitAB(m, f, a, b, alpha_vec, N=0, h=0, debug=False):
             print("\n")
 
     return t_vec, w_vec
-
-def driver():
-    f = lambda t, y: 2 * t
-    fact = lambda t: t ** 2
-    (t, w) = mStepExplicitAB(4, f, 0, 4, [0, 0.0064, 0.0256, 0.0576], 20, debug=True)
-    plt.plot(t, fact(t))
-    plt.plot(t, w)
-    plt.show()
-
-
-driver()
