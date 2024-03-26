@@ -232,3 +232,141 @@ def mStepExplicitAB(m, f, a, b, alpha, order, N=0, h=0, debug=False):
             print("\n")
 
     return t_vec, w_vec
+
+def mStepPCAB(m, f, a, b, alpha, order, N=0, h=0, debug=False):
+    """ 
+    Runs an (m-1)-step implicit Adams-Bashforth corrector method using an m-step explicit Adams-Bashforth predictor
+    Choose a value for h or N, but not both
+
+    ### Parameters
+        @m: Number of previous approximations to use in creation of next approximation
+        @f: Differential equation y' = f(t, y)
+        @a: left endpoint
+        @b: right endpoint
+        @alpha: y_0 = w_0 = alpha
+        @order: order of RK method to use to create initial data
+        @N: number of intervals, (N + 1) total meshpoints including t = a
+        @h: length of interval
+        @debug: True to output debugging information, default False
+
+    ### Returns
+        (t_vec, w_vec)
+    """
+
+    # Debugging
+    if debug:
+        print("----------------------------------------")
+        print(f"Initializing {m}-step explicit Adams-Bashforth...")
+
+    # Check arguments were passed correctly
+    if m <= 0:
+        print("ERROR IN mStepPCAB(): NEED m > 0.")
+        return
+    if N == 0 and h == 0:
+        print("ERROR IN mStepPCAB(): MUST SPECIFY VALUE FOR N or h.")
+        return
+   
+    # Compute h and N, construct t_vec
+    if N == 0:
+        print("ERROR IN mStepPCAB(): NOT IMPLEMENTED CALCULATING h")
+    elif h == 0:
+        h = (b - a) / N
+    t_vec = np.arange(a, b + h/10, h)
+
+    # Create initial data using RK and initialize w_vec
+    # Endpoint b is set so length of init_vec is equivalent to m
+    if debug:
+        print("Constructing initial data using RK...")
+    _, init_vec = RKm(order, f, a, a + h*(m-1), alpha, m - 1, debug=debug)
+    w_vec = np.zeros(N + 1)
+    for j in range(len(init_vec)):
+        w_vec[j] = init_vec[j]
+
+    # Compute b coefficients based on m for explicit predictor
+    # w_(j+1) = w_j + h_m[b_(m-1)f(t_j, w_j) + ... + b_(0)f(t_(i-m+1), w_(i-m+1))]
+    b_vec = np.zeros(m)
+    h_m = 0
+    if m == 1:
+        h_m = h
+        b_vec[0] = 1
+    elif m == 2:
+        h_m = h/2
+        b_vec[0], b_vec[1] = -1, 3
+    elif m == 3:
+        h_m = h/12
+        b_vec[0], b_vec[1], b_vec[2] = 5, -16, 23
+    elif m == 4:
+        h_m = h/24
+        b_vec[0], b_vec[1], b_vec[2], b_vec[3] = -9, 37, -59, 55
+    elif m == 5:
+        h_m = h/720
+        b_vec[0], b_vec[1], b_vec[2], b_vec[3], b_vec[4] = 251, -1274, 2616, -2774, 1901
+    else:
+        print("ERROR IN mStepPCAB(): THIS VALUE OF m NOT IMPLEMENTED")
+        return
+    
+    # Compute c coefficients based on (m-1) for implicit corrector
+    # w_(j+1) = w_j + h_m[c_(m)f(t_(j+1), w_(j+1)) + ... + c_(0)f(t_(i-m+1), w_(i-m+1))]
+    mm = m-1
+    c_vec = np.zeros(m)
+    h_mm = 0
+    if mm == 0:
+        h_mm = h
+        c_vec[0] = 1
+    elif mm == 1:
+        h_mm = h/2
+        c_vec[0], c_vec[1] = 1, 1
+    elif mm == 2:
+        h_mm = h/12
+        c_vec[0], c_vec[1], c_vec[2] = -1, 8, 5
+    elif mm == 3:
+        h_mm = h/24
+        c_vec[0], c_vec[1], c_vec[2], c_vec[3] = 1, -5, 19, 9
+    elif mm == 4:
+        h_mm = h/720
+        c_vec[0], c_vec[1], c_vec[2], c_vec[3], c_vec[4] = -19, 106, -264, 646, 251
+
+    # Debugging
+    if debug:
+        print(f"Number of steps m = {m}")
+        print(f"Step size h = {h}")
+        print(f"Number of intervals N = {N}")
+        print(f"Left endpoint a = {a}")
+        print(f"Right endpoint b = {b}")
+        print(f"Length of t_vec: {t_vec.shape}")
+        print(f"Length of init_vec: {init_vec.shape}")
+        print(f"Length of w_vec: {w_vec.shape}")
+        print(f"Initial point: (t_0, w_0) = (a, alpha) = ({t_vec[0]}, {w_vec[0]})")
+        print(f"Initial data generated from RK:")
+        w_stat = [f"(t_{j}, w_{j}) = ({t_vec[j]}, {w_vec[j]})" for j in range(1, m)]
+        for w in w_stat: print(w)
+        print("\nRunning method...")
+
+    # The method itself
+    # Create the first m function evaluations
+    f_eval_vec = np.array([f(t_vec[k], w_vec[k]) for k in range(0, m)])
+    for j in range(m-1, N):
+        # Predict
+        wp_j = w_vec[j] + h_m * (np.dot(f_eval_vec, b_vec))
+        # Update function evalautions
+        # Slide all elements to the left by 1
+        f_eval_vec[:-1] = f_eval_vec[1:]
+        # Replace last element with new predicted evaluation
+        f_eval_vec[-1] = f(t_vec[j+1], wp_j)
+        # Correct
+        w_vec[j+1] = w_vec[j] + h_mm * (np.dot(f_eval_vec, c_vec))
+        # Correct last function evaluation
+        f_eval_vec[-1] = f(t_vec[j+1], w_vec[j+1])
+        # if j+1 < N:
+        #     # Slide all elements to the left by 1
+        #     f_eval_vec[:-1] = f_eval_vec[1:]
+        #     # Replace last element with new evaluation
+        #     f_eval_vec[-1] = f(t_vec[j+1], w_vec[j+1])
+        if debug:
+            print(f"j = {j}")
+            t_stat = [f"(t_{k}, w_{k})" for k in range(j-m+1, j+1)]
+            print(f"Function evaluations at: {t_stat}")
+            print(f"(t_{j+1}, w_{j+1}) = ({t_vec[j+1]}, {w_vec[j+1]})")
+            print("\n")
+
+    return t_vec, w_vec
