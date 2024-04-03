@@ -39,6 +39,129 @@ def calc_error(w, y, norm=2, type="rel"):
 
     return error_vec, err_norm
 
+## DASSL
+##
+
+def interpolate_at(x, y, x_0):
+    """
+    Constructs the Lagrange interpolating polynomial from x and y, and evaluates
+    it at x_0
+
+    ### Parameters
+        @x: vector
+        @y: vector
+        @x_0: point to evaluate at
+
+    ### Returns
+    """
+
+    poly = sp.interpolate.lagrange(x, y)
+    return poly(x_0)
+
+def interpolate_at_d(x, y, x_0):
+    """
+    Constructs the Lagrange interpolating polynomial from x and y, and evaluates
+    its derivative at x_0
+
+    ### Parameters
+        @x: vector
+        @y: vector
+        @x_0: point to evaluate at
+
+    ### Returns
+    """
+
+    poly = sp.interpolate.lagrange(x, y)
+    dpoly = poly.deriv()
+    return dpoly(x_0)
+
+def scalar_DASSL(f, t_0, t_f, alpha, alpha_prime, h_init):
+    """
+    Solve ODE's of the form f(t, y(t), y'(t)) = 0 on the interval [t_0, t_f]
+
+    ### Parameters
+        @f: function of t, y, and y'
+        @t_0: left endpoint of interval
+        @t_f: right endpoint of interval
+        @alpha: initial value for y, y(t_0) = alpha
+        @alpha_prime: initial value for y', y'(t_0) = alpha_prime
+        @h_init: Initial step size
+
+    ### Returns
+    """
+
+    # Initialize t_vec, w_approx_vec, and dw_approx_vec vectors, w_approx_vec[j]
+    # and dw[j] are approximations of solution w and its derivative dw at
+    # t = t_j
+    t_vec = [t_0]
+    w_approx_vec = [alpha]
+    dw_approx_vec = [alpha_prime]
+
+    ## Mesh point loop
+    for j in range(1, 1000): # Change later so we get right amount of meshpoints
+        # w_j_iter_vec[i] / dw_j_iter_vec[i] represents approximation w_j at
+        # time t_j at Newton iteration i
+        w_j_iter_vec = []
+        dw_j_iter_vec = []
+        if j == 1:
+            # Creating our first initial iterations for w_1 and dw_1 at t_1 = t_0 + h
+            # y(t+h) ~= y(t) + h*y'(t)
+            w_j_iter_vec[0] = w_approx_vec[0] + h_init*dw_approx_vec[0]
+            # y'(t+h) ~= y'(t)
+            dw_j_iter_vec[0] = dw_approx_vec[0]
+            
+            # When running Newton's method later we use y'(t) ~= a*y(t) + b,
+            # a and b come from Hermite interpolation polynomial somehow... see
+            # DASSL.jl
+            a = 2 / h_init
+            b = -dw_approx_vec[0] - ((2 * w_approx_vec[0]) / h_init) 
+        else:
+            # TODO
+            # Not creating our first approximation, j != 1
+            # We'll use interpolating polynomials with the nodes being previous
+            # approximations to create initial iterations for w_j and dw_j
+
+            continue
+
+def scalar_newtons(f, df, r_0, tol, N_max, debug=False):
+    """
+    Approximate the solutions to f(x) = 0 with initial approximation x = r_0 
+    and approximating f'(x) as a*f(x) + b
+
+    ### Parameters
+        @f: single-variable scalar function
+        @df: derivative of f
+        @r_0: initial guess for root
+        @tol: tolerance
+        @N_max: maximum iterations to run
+
+    ### Returns
+        approximation (double), error_code (int)
+    """
+
+    if debug:
+        print(f"Running scalar_newtons with initial guess {r_0}...")
+
+    # Vector of approximations
+    r_vec = np.zeros(N_max)
+    r_vec[0] = r_0
+
+    # Continue iterating until desired tolerance or max iterations reached
+    for i in range(0, N_max - 1):
+        # Create next approximation
+        r_curr = r_vec[i] - (f(r_vec[i]) / df(r_vec[i]))
+        if debug:
+            print(f"Iteration {i+1}: {r_curr}")
+        r_vec[i+1] = r_curr
+
+        # Check if absolute tolerance reached
+        if np.abs(r_curr - r_vec[i]) < tol:
+            err = 0
+            return (r_curr, err)
+    
+    # If we reach this point, max iterations were reached
+    return (r_curr, 1)
+
 ## Approximators
 ##
 
@@ -371,9 +494,9 @@ def m_step_PCAB(m, f, a, b, alpha, order, N=0, h=0, debug=False):
 
     return t_vec, w_vec
 
-def m_step_PCAB_var(m, f, a, b, alpha, order, N=0, h=0, debug=False):
+def m_step_PCAB_var(m, f, a, b, alpha, order, eps, eps_factor, N=0, h=0, debug=False):
     """ 
-    Runs an (m-1)-step implicit Adams-Bashforth corrector method using an m-step explicit Adams-Bashforth predictor
+    Runs a variable step size (m-1)-step implicit Adams-Bashforth corrector method using an m-step explicit Adams-Bashforth predictor
     Choose a value for h or N, but not both
 
     ### Parameters
@@ -383,6 +506,8 @@ def m_step_PCAB_var(m, f, a, b, alpha, order, N=0, h=0, debug=False):
         @b: right endpoint
         @alpha: y_0 = w_0 = alpha
         @order: order of RK method to use to create initial data
+        @eps: desired tolerance of local truncation error
+        @eps_factor: lower bound on local truncation error to determine when to change step size
         @N: number of intervals, (N + 1) total meshpoints including t = a
         @h: length of interval
         @debug: True to output debugging information, default False
@@ -483,7 +608,11 @@ def m_step_PCAB_var(m, f, a, b, alpha, order, N=0, h=0, debug=False):
     # The method itself
     # Create the first m function evaluations
     f_eval_vec = np.array([f(t_vec[k], w_vec[k]) for k in range(0, m)])
-    for j in range(m-1, N):
+    j = m-1
+    eps_upper = eps
+    eps_lower = eps*eps_factor
+    # for j in range(m-1, N):
+    while True:
         # Predict
         wp_j = w_vec[j] + h_m * (np.dot(f_eval_vec, b_vec))
         # Update function evalautions
@@ -495,6 +624,10 @@ def m_step_PCAB_var(m, f, a, b, alpha, order, N=0, h=0, debug=False):
         w_vec[j+1] = w_vec[j] + h_mm * (np.dot(f_eval_vec, c_vec))
         # Correct last function evaluation
         f_eval_vec[-1] = f(t_vec[j+1], w_vec[j+1])
+        # Compute local truncation error
+        # Do we need to update the step size?
+        
+
         # if j+1 < N:
         #     # Slide all elements to the left by 1
         #     f_eval_vec[:-1] = f_eval_vec[1:]
