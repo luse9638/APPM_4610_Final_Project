@@ -105,27 +105,35 @@ def scalar_DASSL(f, t_0, t_f, alpha, alpha_prime, h_init):
 
     ## Mesh point loop
     for j in range(1, 1000): # Change later so we get right amount of meshpoints
+        
         # TODO: recalculate order as needed
         ord = 1
+
+        # TODO: recalculate h_j as needed
+        h_j = h_init
+
+        # Next t_j occurs at t_(j-1) + h
+        # TODO: change so h adapts
+        t_j = t_vec[-1] + h_j
         
-        # w_j_iter_vec[i] / dw_j_iter_vec[i] represents approximation w_j at
-        # time t_j at Newton iteration i
-        w_j_iter_vec = []
-        dw_j_iter_vec = []
+        # w_j_init / dw_j_init represents the initial guess for w = w_j that
+        # will later be iterated on by Newton's method
+        w_j_init = 0
+        dw_j_init = 0
         if j == 1:
             # Creating our first initial iterations for w_1 and dw_1 at 
             # t_1 = t_0 + h
             
-            # y(t+h) ~= y(t) + h*y'(t)
-            w_j_iter_vec[0] = w_approx_vec[0] + h_init*dw_approx_vec[0]
+            # y(t+h) ~= y(t) + h*y'(t) (first order Taylor)
+            w_j_init = w_approx_vec[0] + h_j*dw_approx_vec[0]
             # y'(t+h) ~= y'(t)
-            dw_j_iter_vec[0] = dw_approx_vec[0]
+            dw_j_init = dw_approx_vec[0]
             
-            # When running Newton's method later we use y'(t) ~= a*y(t) + b,
+            # When running Newton's method later we'll use y'(t) ~= a*y(t) + b,
             # a and b come from Hermite interpolation polynomial somehow... see
             # DASSL.jl
-            a = 2 / h_init
-            b = -dw_approx_vec[0] - ((2 * w_approx_vec[0]) / h_init) 
+            a = 2 / h_j
+            b = -dw_approx_vec[0] - ((2 * w_approx_vec[0]) / h_j) 
         else:
             # Not creating our first approximation, j != 1
             
@@ -134,9 +142,45 @@ def scalar_DASSL(f, t_0, t_f, alpha, alpha_prime, h_init):
             # w_j and dw_j
             t_nodes = t_vec[-(ord+1):]
             w_nodes = w_approx_vec[(-ord+1):]
+            w_j_init = interpolate_at(t_nodes, w_nodes, t_j)
+            dw_j_init = interpolate_at_d(t_nodes, w_nodes, t_j)
+
+            # Again using y'(t) ~= a*y(t) + b, this time with different values
+            # for a and b, no clue where these come from
+            alphas = -sum(1/k for k in range(0, ord+1))
+            a = -alphas / h_j
+            b = -dw_j_init - (a * w_j_init)
+
+        # Create the function f_newt to run Newton's method on, as solving 
+        # f(t_j, y(t_j), y'(t_j)) = 0 improves our approximation w_j of y(t_j)
+        # Here, we use the approximation y'(t_j) ~= a*y(t_j) + b using the a's
+        # and b's calculated previously.
+        f_newt = lambda w_j: f(t_j, w_j, a*w_j + b)
+        # Also need the derivative of f_newt, calculated using first order
+        # backwards difference:
+        # ( f_newt(w_j) - f_newt(w_(j-1)) ) / ( t_j - t_(j-1) )
+        df_newt = lambda w_j: (f_newt(w_j) - f_newt(w_approx_vec[-1])) / h_j
+
+        # Run Newton's method!
+        # TODO: how to choose tolerance? how to choose max iterations? 4 is
+        # used in DASSL.JL
+        w_j, stat = scalar_newtons(f_newt, df_newt, w_j_init, 1e-4, 20)
+
+        # Did we converge?
+        if stat == 1:
+            # We did not converge :/
+            # TODO: how to update value for h and ord?
+            return
+        else:
+            # We converged :)
+            w_approx_vec.append(w_j)
+            dw_approx_vec.append(a*w_j + b)
+
+        # Terminate once we've covered the entire interval
+        if t_vec[-1] >= t_f:
+            return(t_vec, w_approx_vec)
 
 
-            continue
 
 def scalar_newtons(f, df, r_0, tol, N_max, debug=False):
     """
