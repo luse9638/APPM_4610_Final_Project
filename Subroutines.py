@@ -42,7 +42,7 @@ def calc_error(w, y, norm=2, type="rel"):
 ## DASSL
 ##
 
-def interpolate_at(x, y, x_0):
+def interpolate_at(x, y, x_0, debug=False):
     """
     Constructs the Lagrange interpolating polynomial from x and y, and evaluates
     it at x_0
@@ -53,12 +53,15 @@ def interpolate_at(x, y, x_0):
         @x_0: point to evaluate at
 
     ### Returns
+        poly (polynomial), poly(x_0) (int)
     """
 
     poly = sp.interpolate.lagrange(x, y)
-    return poly(x_0)
+    if debug:
+        print(poly)
+    return (poly, poly(x_0))
 
-def interpolate_at_d(x, y, x_0):
+def interpolate_at_d(x, y, x_0, debug=False):
     """
     Constructs the Lagrange interpolating polynomial from x and y, and evaluates
     its derivative at x_0
@@ -69,11 +72,14 @@ def interpolate_at_d(x, y, x_0):
         @x_0: point to evaluate at
 
     ### Returns
+        dpoly (polynomial), dpoly(x_0) (int)
     """
 
     poly = sp.interpolate.lagrange(x, y)
     dpoly = poly.deriv()
-    return dpoly(x_0)
+    if debug:
+        print(dpoly)
+    return (dpoly, dpoly(x_0))
 
 def scalar_DASSL(f, t_0, t_f, alpha, alpha_prime, h_init):
     """
@@ -99,12 +105,17 @@ def scalar_DASSL(f, t_0, t_f, alpha, alpha_prime, h_init):
 
     ## Mesh point loop
     for j in range(1, 1000): # Change later so we get right amount of meshpoints
+        # TODO: recalculate order as needed
+        ord = 1
+        
         # w_j_iter_vec[i] / dw_j_iter_vec[i] represents approximation w_j at
         # time t_j at Newton iteration i
         w_j_iter_vec = []
         dw_j_iter_vec = []
         if j == 1:
-            # Creating our first initial iterations for w_1 and dw_1 at t_1 = t_0 + h
+            # Creating our first initial iterations for w_1 and dw_1 at 
+            # t_1 = t_0 + h
+            
             # y(t+h) ~= y(t) + h*y'(t)
             w_j_iter_vec[0] = w_approx_vec[0] + h_init*dw_approx_vec[0]
             # y'(t+h) ~= y'(t)
@@ -116,10 +127,14 @@ def scalar_DASSL(f, t_0, t_f, alpha, alpha_prime, h_init):
             a = 2 / h_init
             b = -dw_approx_vec[0] - ((2 * w_approx_vec[0]) / h_init) 
         else:
-            # TODO
             # Not creating our first approximation, j != 1
-            # We'll use interpolating polynomials with the nodes being previous
-            # approximations to create initial iterations for w_j and dw_j
+            
+            # We'll use interpolating polynomials with the nodes being the
+            # previous (k+1) approximations to create initial iterations for
+            # w_j and dw_j
+            t_nodes = t_vec[-(ord+1):]
+            w_nodes = w_approx_vec[(-ord+1):]
+
 
             continue
 
