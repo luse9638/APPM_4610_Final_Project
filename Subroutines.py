@@ -203,8 +203,6 @@ def scalar_DASSL(f, t_0, t_f, alpha, alpha_prime, h_init, debug=False):
         if t_vec[-1] >= t_f:
             return(t_vec, w_approx_vec)
 
-
-
 def scalar_newtons(f, df, r_0, tol, N_max, debug=False):
     """
     Approximate the solutions to f(x) = 0 with initial approximation x = r_0 
@@ -295,12 +293,27 @@ def RK_m(m, f, a, b, alpha, N=0, h=0, debug=False):
     k_vec = np.zeros(m)
     b_vec = np.zeros(m)
     h_m = 0
-    if m == 2:
+    if m == 1:
+        # Forward Euler method
         h_m = h
-        b_vec[0], b_vec[1] = 0, 1
+        b_vec[0] = 1
         k_1j = lambda j: f(t_vec[j], w_vec[j])
-        k_2j = lambda j: f(t_vec[j] + (h/2), w_vec[j] + (k_1j(j)/2))
+        k_vec = lambda j: np.array([k_1j(j)])
+    elif m == 2:
+        # Modified Euler method
+        h_m = h/2
+        b_vec[0], b_vec[1] = 1, 1
+        k_1j = lambda j: f(t_vec[j], w_vec[j])
+        k_2j = lambda j: f(t_vec[j+1], w_vec[j] + h*k_1j(j))
         k_vec = lambda j: np.array([k_1j(j), k_2j(j)])
+    elif m == 3:
+        # Not sure what this one's called, comes from K-State (Math 340)
+        h_m = h/6
+        b_vec[0], b_vec[1], b_vec[2] = 1, 1, 4
+        k_1j = lambda j: f(t_vec[j], w_vec[j])
+        k_2j = lambda j: f(t_vec[j] + h, w_vec[j] + h*k_1j(j))
+        k_3j = lambda j: f(t_vec[j] + h/2, w_vec[j] + (h/4)*(k_1j(j) + k_2j(j)))
+        k_vec = lambda j: np.array([k_1j(j), k_2j(j), k_3j(j)])
     elif m == 4:
         h_m = h/6
         b_vec[0], b_vec[1], b_vec[2], b_vec[3] = 1, 2, 2, 1
