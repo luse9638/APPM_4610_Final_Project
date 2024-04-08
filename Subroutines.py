@@ -5,6 +5,7 @@ import numpy as np
 import scipy as sp
 import math
 import matplotlib.pyplot as plt
+import time
 
 ## Error calculations
 ##
@@ -304,7 +305,7 @@ def RK_m(m, f, a, b, alpha, N=0, h=0, debug=False):
         h_m = h/2
         b_vec[0], b_vec[1] = 1, 1
         k_1j = lambda j: f(t_vec[j], w_vec[j])
-        k_2j = lambda j: f(t_vec[j+1], w_vec[j] + h*k_1j(j))
+        k_2j = lambda j: f(t_vec[j] + h, w_vec[j] + h*k_1j(j))
         k_vec = lambda j: np.array([k_1j(j), k_2j(j)])
     elif m == 3:
         # Not sure what this one's called, comes from K-State (Math 340)
@@ -320,7 +321,7 @@ def RK_m(m, f, a, b, alpha, N=0, h=0, debug=False):
         k_1j = lambda j: f(t_vec[j], w_vec[j])
         k_2j = lambda j: f(t_vec[j] + (h/2), w_vec[j] + (h*k_1j(j) / 2))
         k_3j = lambda j: f(t_vec[j] + (h/2), w_vec[j] + (h*k_2j(j) / 2))
-        k_4j = lambda j: f(t_vec[j+1], w_vec[j] + h*k_3j(j))
+        k_4j = lambda j: f(t_vec[j] + h, w_vec[j] + h*k_3j(j))
         k_vec = lambda j: np.array([k_1j(j), k_2j(j), k_3j(j), k_4j(j)])
     else:
         print("ERROR IN RKm(): THIS VALUE OF m NOT IMPLEMENTED")
@@ -340,8 +341,120 @@ def RK_m(m, f, a, b, alpha, N=0, h=0, debug=False):
     for j in range(0, N):
         w_vec[j+1] = w_vec[j] + h_m * (np.dot(k_vec(j), b_vec))
 
+    if debug:
+        print(f"t_vec: {t_vec}, length {len(t_vec)}")
+        print(f"w_vec: {w_vec}, length {len(w_vec)}")
+
     return (t_vec, w_vec)
+
+def RK_m_var(m, f, a, b, alpha, h_max, tol, q_fac, debug=False):
+    """
+    Runs an mth order Runge-Kutta method using an (m+1)th order Runge_Kutta 
+    method to vary the stepsize
+
+    ### Parameters
+        @m: Order of method
+        @f: Differential equation y' = f(t, y)
+        @a: left endpoint
+        @b: right endpoint
+        @alpha: y_0 = w_0 = alpha
+        @h_max: maximum step size
+        @tol: desired bound on local truncation error
+        @q_fac: factor to scale q by
+        @debug: True to output debugging information, default False
+
+    ### Returns
+        (t_vec, w_vec)
+    """
+
+    # Debugging
+    if debug:
+        print("--------------------------------")
+        print(f"Initializing order {m} variable step size Runge-Kutta...")
     
+    # Check arguments were passed correctly
+    if m <= 0:
+        print("ERROR IN RK_m_var(): NEED m > 0.")
+        return
+    
+    # Initialize t_vec and w_vec with initial data
+    t_vec = [a]
+    w_vec = [alpha]
+    
+    # Storing whether to force a step size update on the next iteration
+    force_h_update = False
+    # Storing whether we are forced a step size to not overshoot the end of the
+    # inteval
+    forced_last = False
+
+    # Continue iterating until we reach the right endpoint
+    while True:
+        if debug:
+            time.sleep(0.5)
+        # Get previous mesh point and approximation
+        t_j = t_vec[-1]
+        w_j = w_vec[-1]
+        
+        # Start by using the largest step size possible
+        h_j = h_max
+        # Check that we don't overshoot the interval
+        if t_j + h_j >= b:
+            # Forced to use a specific step size
+            forced_last = True
+            h_j = b - t_j
+            # Set current mesh point
+            t_jp1 = b
+        else:
+            # We keep using the maximum step size
+            forced_last = False
+            # Set current mesh point
+            t_jp1 = t_j + h_j
+        
+        # Calculate current approximation with the current step size
+        w_jp1 = RK_m(m, f, t_j, t_jp1, w_j, 1, h=h_j, debug=debug)[1][1]
+        
+        # Estimate the LTE of approximation
+        tilde_w_jp1 = RK_m(m+1, f, t_j, t_jp1, w_jp1, 1, h=h_j, debug=debug)[1][1]
+        LTE = (tilde_w_jp1 - w_jp1) * (1/h_j)
+        if debug:
+            print(f"LTE of approximation ({t_jp1}, {w_jp1}) with h = {h_j}: {LTE}")
+        
+        # If we're on the last step size, we are forced to accept the
+        # approximation regardless of whether the LTE is within tolerance and
+        # terminate
+        if forced_last:
+            t_vec.append(t_jp1)
+            w_vec.append(w_jp1)
+            return (np.array(t_vec), np.array(w_vec))
+        # Otherwise, if LTE is within tolerance, we accept the approximation
+        elif LTE <= tol:
+            if debug:
+                print(f"Approximation accepted with h = {h_j}!")
+            # Accept approximation
+            t_vec.append(t_jp1)
+            w_vec.append(w_jp1)
+            continue
+        # Otherwise we need to retry with a new step size
+        else:
+            if debug:
+                print(f"Approximation not accepted with h = {h_j}")
+            # Calculate q
+            q = q_fac * ( (tol) / (abs(LTE)) )**(1/m)
+            # Update the step size and mesh point
+            h_j = min([h_max, h_j * q])
+            t_jp1 = t_j + h_j
+            if debug:
+                print(f"Using new step size h = {h_j}")
+            
+            # Recalculate the approximation and accept it
+            w_jp1 = RK_m(m, f, t_j, t_jp1, w_j, 1, h=h_j, debug=debug)[1][1]
+            t_vec.append(t_jp1)
+            w_vec.append(w_jp1)
+            continue
+
+
+
+
 def m_step_expl_AB(m, f, a, b, alpha, order, N=0, h=0, debug=False):
     """ 
     Runs an m-step explicit Adams-Bashforth method
