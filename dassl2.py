@@ -153,10 +153,43 @@ def alpha_0(h_vec, t_vec, j, k):
     '''
     return -sum(alpha(h_vec, t_vec, ii, j) for ii in range(1, k+1)) # ii in [1, k]
 
+def newtons_method(f, df, r_0, tol, N_max, debug=False):
+    '''
+    Approximate the solutions to f(x) = 0 with initial approximation x = r_0
+
+    ### Parameters
+        @f: single-variable scalar function
+        @df: derivative of f
+        @r_0: initial guess for root
+        @tol: tolerance
+        @N_max: maximum iterations to run
+
+    ### Returns
+        approximation (double), error_code (int)
+    '''
+
+    r_vec = np.zeros(N_max)
+    r_vec[0] = r_0
+
+    # Continue iterating until desired tolerance or max iterations reached
+    for i in range(0, N_max):
+        # Create next approximation
+        r_prev = r_vec[i]
+        r_curr = r_prev - (f(r_prev) / df(r_prev))
+        r_vec[i+1] = r_curr
+
+        # Check if absolute tolerance reached
+        if np.abs(r_curr - r_prev) < tol:
+            converged = True
+            return (r_curr, converged)
+    
+    # If we reach this point, max iterations were reached
+    return (r_curr, False)
+
 # DASSL ########################################################################
 ################################################################################
 
-def scalar_dassl(f, t_0, t_f, y_0, dy_0, h_0, newt_tol, debug=True):
+def scalar_dassl(f, t_0, t_f, y_0, dy_0, h_0, newt_tol, debug=False):
     '''
     @f: f(t, y, y') = 0
     @t_0: left endpoint
@@ -176,6 +209,10 @@ def scalar_dassl(f, t_0, t_f, y_0, dy_0, h_0, newt_tol, debug=True):
     dw_vec = [dy_0]
     h_vec = []
     k_vec = [] # TODO: how to select first BDF order?
+
+    if dy_0 is None:
+        print("ERROR IN scalar_dassl(): NO INITIAL DATA FOR dy_0 NOT YET IMPLEMENTED")
+        return
 
     # Conditions for terminating the time stepping.
     interval_len = t_f - t_0
@@ -207,15 +244,26 @@ def scalar_dassl(f, t_0, t_f, y_0, dy_0, h_0, newt_tol, debug=True):
         h_j_trial_vec = []
         k_j_trial_vec = []
 
+        if debug:
+            print(f"  Starting iteration ({j}) to find w_{j+1}")
+            print(f"  Previous values: h_{j-1} = {h_jm1}, k_{j-1} = {k_jm1}, t_{j} = {t_j}, w_{j} = {w_j}, dw_{j} = {dw_j}")
+
         # Current time step (j) approximation loop.
         # Continue looping until our computed approximation meets certain
         # condtions.
+        attempt = 0
         while True: # TODO: fix this condition
+            if debug:
+                print(f"    Attempt {attempt}:")
+            
             # Determine order of BDF method to use.
             k_j = calc_BDF_order() # TODO: write this function
 
             # Determine a stepsize to use.
             h_j = calc_stepsize() # TODO: write this function.
+
+            if debug:
+                print(f"      k_{j} = {k_j}, h_{j} = {h_j}")
 
             # Get the previous (k+1) approximations to use as interpolant nodes
             # in the predictor polynomial.
@@ -227,17 +275,48 @@ def scalar_dassl(f, t_0, t_f, y_0, dy_0, h_0, newt_tol, debug=True):
             # Vector of stepsizes trialed for Newton's method at time step (j).
             h_j_newt_vec = []
 
+            if debug:
+                print(f"      Beginning Newton's method")
+
             # Newton's method loop, we continue retrying with different initial
             # guesses (from trialing different stepsizes) until we are within
             # the specified tolerance error.
             newt_iter_count = 0
             while newt_iter_count < 10: # Terminate the whole algorithm if
                                         # Newton's refuses to converge.
-                # Calculate h_newt_j and use to create initial approximations
-                h_j_newt = calc_stepsize() # TODO: write this function
+                # Calculate h_newt_j.
+                h_j_newt = calc_stepsize() # TODO: write this function.
                 t_jp1 = t_j + h_j_newt
-                w0_jp1 = eval_interp_poly(t_pred_nodes, w_pred_nodes, t_jp1)
-                dw0_jp1 = eval_interp_poly(t_pred_nodes, dw_pred_nodes, t_jp1) # TODO: is there a better way to do this?
 
+                # Create initial guesses for w_{j+1} and dw_{j+1}.
+                if newt_iter_count == 0:
+                    # We don't have enough approximations for the interpolating
+                    # polynomial, so we'll use a Taylor expansion.
+                    w0_jp1 = w_j + h_j_newt * dw_j
+                    dw0_jp1 = dw_j
+                else:
+                    # Use interpolating polynomial to create initial guess.
+                    w0_jp1 = eval_interp_poly(t_pred_nodes, w_pred_nodes, t_jp1)
 
-    
+                # Create functions to run Newton's method on.
+                ALPHA = -alpha_s(k_j) / h_j_newt
+                BETA = dw0_jp1 - ALPHA*w0_jp1
+                f_newt = lambda w_jp1: f(t_jp1, w_jp1, ALPHA*w_jp1 + BETA)
+                df_newt = lambda w_jp1: (f_newt(w_jp1) - f_newt(w_jp1 - h_j_newt)) / h_j_newt # TODO: is there a better way to compute this?
+
+                # Run Newton's method.
+                w_jp1_newt, converged = newtons_method(f_newt, df_newt, w0_jp1, newt_tol, 4, debug=debug)
+                h_j_newt_vec.append(h_j_newt)
+                newt_iter_count += 1
+
+                # Do we need to retry the method?
+                if converged: # No we do not.
+                    h_j_trial_vec.append(h_j_newt)
+                    w_jp1_trial_vec.append(w_jp1_newt)
+                    dw_jp1_trial_vec.append(ALPHA*w_jp1_newt + BETA)
+                    # Exit the Newton's method loop
+                    break
+                else:
+                    # Continue the Newton's method loop
+                    newt_iter_count += 1
+                    continue
