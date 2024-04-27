@@ -19,11 +19,16 @@ def calc_stepsize():
 def newton_div_diff(t_nodes, y_nodes, start, end):
     '''
     Find the divided difference [y_end, y_{end-1}, ..., y_start]
+    
     @t_nodes: vector of t values
     @y_nodes: vector of y values
     @start: start index
     @end: end index
     '''
+
+    # Predicates
+    assert len(t_nodes) == len(y_nodes)
+    assert start <= end
     
     # Base case.
     if start == end:
@@ -32,6 +37,32 @@ def newton_div_diff(t_nodes, y_nodes, start, end):
     # Recursive case.
     return (newton_div_diff(t_nodes, y_nodes, start+1, end) - newton_div_diff(t_nodes, y_nodes, start, end-1))\
         / (t_nodes[end] - t_nodes[start])
+
+def eval_interp_poly(t_nodes, y_nodes, t_eval):
+    '''
+    Form an interpolating polynomial and evaluate it at a point
+    
+    @t_nodes: vector of t values
+    @y_nodes: vector of y values
+    @t_eval: what to evaluate polynomial at
+
+    :return: interpolating polynomial evaluated at t_eval
+    :rtype: double
+    '''
+
+    # Predicates
+    assert len(t_nodes) == len(y_nodes)
+
+    n = len(t_nodes)
+    eval = 0
+    for i in range(0, n):
+        term = newton_div_diff(t_nodes, y_nodes, 0, i)
+        for j in range(0, i):
+            term *= t_eval - t_nodes[j]
+        eval += term
+
+    return eval
+    
 
 # DASSL ########################################################################
 ################################################################################
