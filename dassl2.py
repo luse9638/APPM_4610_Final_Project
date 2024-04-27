@@ -186,6 +186,42 @@ def newtons_method(f, df, r_0, tol, N_max, debug=False):
     # If we reach this point, max iterations were reached
     return (r_curr, False)
 
+def estimate_LTE(h_vec, t_vec, j, k, w0, wf):
+    '''
+    Estimates the local truncation error when using DASSL
+
+    ### Parameters
+    @h_vec: vector of h values
+    @t_vec: vector of t values
+    @j: time step
+    @k: BDF order
+    @w0: initial Newton's method guess
+    @wf: result of Newton's method
+
+    ### Returns
+    double
+    '''
+
+    return (alpha(h_vec, t_vec, k+1, j) + alpha_s(k) - alpha_0(h_vec, t_vec, j, k))\
+        * abs(wf-w0)
+
+def estimate_interp_err(h_vec, t_vec, k, j, w0, wf):
+    '''
+    Estimates the interpolation error when using DASSL
+
+    ### Parameters
+    @h_vec: vector of h values
+    @t_vec: vector of t values
+    @k: BDF order
+    @j: time step
+    @w0: initial Newton's method guess
+    @wf: result of Newton's method
+
+    ### Returns
+    double
+    '''
+
+    return alpha(h_vec, t_vec, k+1, j) * abs(wf-w0)
 # DASSL ########################################################################
 ################################################################################
 
