@@ -5,54 +5,96 @@ import numpy as np
 import scipy as sp
 import math
 
+# Constants ####################################################################
+################################################################################
+
+MAX_ORDER = 6
+MAX_H = 0.1
+
 # Subroutines ##################################################################
 ################################################################################
 
-def calc_ord_stepsize(h_vec, t_vec, y_vec, h_prev, j, k, num_fail):
+def calc_ord_stepsize(h_vec, t_vec, w_vec, h_prev, j, k_prev, num_fail, last_err):
     '''
     '''
-    # Estimate leading term of Taylor series expansions for orders (k-2), (k-1),
-    # and k, and use these to calculate k_new.
-    if k-2 >= 1:
-        tay_km2 = abs((k-1) * sigma(h_vec, t_vec, k-1, j) * phi(h_vec, t_vec, y_vec, k, j+1))
-        tay_km1 = abs(k * sigma(h_vec, t_vec, k, j) * phi(h_vec, t_vec, y_vec, k+1, j+1))
-        tay_k = abs((k+1) * sigma(h_vec, t_vec, k+1, j) * phi(h_vec, t_vec, y_vec, k+2, j+1))
-        if tay_km2 <= tay_km1 and tay_km1 <= tay_k:
-            k_new = k-1
-        elif tay_k <= tay_km1 and tay_km1 <= tay_km2:
-            k_new = k+1
-        else:
-            k_new = k
-    elif k-1 >= 1:
-        tay_km1 = abs(k * sigma(h_vec, t_vec, k, j) * phi(h_vec, t_vec, y_vec, k+1, j+1))
-        tay_k = abs((k+1) * sigma(h_vec, t_vec, k+1, j) * phi(h_vec, t_vec, y_vec, k+2, j+1))
-        if tay_km1 <= tay_k:
-            k_new = k-1
-        elif tay_k <= tay_km1:
-            k_new = k+1
-        else:
-            k_new = k
-    elif k >= 1:
-        k_new = k
+    assert j >= 1
+    num_steps = len(t_vec)
 
-    # Determine new step size, h_new
-    est = (1/(k_new+1)) * abs(k_new * sigma(h_vec, t_vec, k_new, j) * phi(h_vec, t_vec, y_vec, k_new+1, j))
-    r = (2*est) ** (-1/(k_new+1))
-    if num_fail == 0 and r >= 2: # Last step was successful and we can at least double the step size
-        h_new = 2*h_prev
-    elif num_fail == 0 and r >= 1: # Last step was successful but we can't double the step size
-        h_new = h_prev
-    elif num_fail == 0 and r < 1: # Last step was successful but we want to decrease the step size
-        h_new = 0.9*h_prev
-    elif num_fail == 1: # Last step failed so we decrease is called for
-        h_new = 0.9*r*h_prev
-    elif num_fail > 1: # Last step has failed multiple times
+    if num_fail >= 3:
+        # Been failing a lot, reset to order 1 and decrease step size again.
+        k_new = 1
         h_new = 0.25*h_prev
+        return k_new, h_new
+    elif j <= 1 and last_err <= 1:
+        # Don't increase order yet but do increase step size
+        k_new = 1
+        h_new = min(2*h_prev, MAX_H)
+        return k_new, h_new
+    elif j <= 1 and last_err > 1:
+        # Don't increase order, decrease step size
+        k_new = 1
+        h_new = 0.9*h_prev
+        return k_new, h_new
+    elif 2 <= j and j <= 4 and last_err <= 1:
+        # Increase order and step size
+        k_new = min(k_prev+1, MAX_ORDER)
+        h_new = min(2*h_prev, MAX_H)
+        return k_new, h_new
+    elif 3 <= j and j <= 4 and last_err > 1:
+        # Increase order but decrease step size
+        k_new = min(k_prev+1, MAX_ORDER)
+        h_new = 0.9*h_prev
+        return k_new, h_new
+    elif num_steps < k_prev+2:
+        # Don't have enough approximations to do Taylor estimates
+        if num_fail == 0:
+            # Previous step accepted, increase order and step size
+            k_new = min(k_prev+1, MAX_ORDER)
+            h_new = min(2*h_prev, MAX_H)
+            return k_new, h_new
+        else:
+            # Decrease step size and order
+            k_new = max(k_prev-1, 1)
+            h_new = 0.25*h_prev
+            return k_new, h_new
     else:
-        print("ERROR IN calc_ord_stepsize(): UNSURE HOW TO ADJUST STEPSIZE")
-        return
+        # We have at least (k+3) previous steps, so we can do Taylor estimates
+        errors = []
+        for i in range(max(1, k_prev-2), k_prev+1): # i in [_, k]
+            maxd = eval_dmax_interp_poly(t_vec[-i-1:], w_vec[-i-1:])
+            errors.append(h_prev**(i+1) * abs(maxd))
+        if num_steps >= k_prev + 3 and h_vec[-1] == h_vec[-2] == h_vec[-3]:
+            maxd = eval_dmax_interp_poly(t_vec[-k_prev-2:], w_vec[-k_prev-2:])
+            errors.append(h_prev**(k_prev+2) * abs(maxd))
+            
+        error_len = len(errors)
+        error_dec = all(errors[i] >= errors[i+1] for i in range(error_len - 1))
+        error_inc = all(errors[i] <= errors[i+1] for i in range(error_len - 1))
+
+        if error_len == k_prev+1 and error_dec:
+            # We can estimate the (k+1) order error and Taylor expansion
+            # sequence is decreasing, so we can increase the order.
+            k_new = min(k_prev+1, MAX_ORDER)
+        elif error_len > 1 and error_inc:
+            # Taylor expansion sequence is increasing, so we decrease the order
+            k_new = max(k_prev-1, 1)
+        else:
+            k_new = k_prev
+
+        est = errors[k_new-2]
+        r = (2*est) ** (-1/(k_new+1))
+        if num_fail == 0 and r >= 2:
+            h_new = min(2*h_prev, MAX_H)
+        elif num_fail == 0 and r < 1:
+            h_new = 0.9*h_prev
+        elif num_fail == 1:
+            h_new = 0.5*h_prev
+        elif num_fail >= 2:
+            h_new = 0.25*h_prev
+        else:
+            h_new = h_prev
     
-    return k_new, h_new
+        return k_new, h_new
 
 def newton_div_diff(t_nodes, y_nodes, start, end):
     '''
@@ -101,7 +143,24 @@ def eval_interp_poly(t_nodes, y_nodes, t_eval):
         eval += term
 
     return eval
-    
+
+def eval_dmax_interp_poly(t_nodes, y_nodes):
+    assert len(t_nodes) == len(y_nodes)
+
+    n = len(t_nodes)
+    p = 0  
+
+    for i in range(n):
+        Li = 1
+        for j in range(n):
+            if j == i:
+                continue
+            else:
+                Li *= 1 / (t_nodes[i] - y_nodes[j])
+        p += Li * y_nodes[i]
+
+    return math.factorial(n - 1) * p
+
 def psi(h_vec, t_vec, i, j):
     '''
     Compute psi_i(j+1)
@@ -286,9 +345,6 @@ def dassl_step(f, t_nodes, w_nodes, dw_nodes, j, h_j, h_fac, k_j, t_j, w_j, dw_j
     '''
     
     '''
-
-
-
     # Newton's method loop, we continue retrying with different initial
     # guesses (from trialing different stepsizes) until we are within
     # the specified tolerance error.
@@ -316,8 +372,8 @@ def dassl_step(f, t_nodes, w_nodes, dw_nodes, j, h_j, h_fac, k_j, t_j, w_j, dw_j
         f_newt = lambda w: f(t_jp1_newt, w, ALPHA*w + BETA)
         df_w_newt = lambda w: (f(t_jp1_newt, w, ALPHA*w + BETA)-f(t_jp1_newt, w-0.0001, ALPHA*w + BETA)) / 0.0001
         df_dw_newt = lambda w: (f(t_jp1_newt, w, ALPHA*w + BETA)-f(t_jp1_newt, w, ALPHA*w + BETA - 0.0001)) / 0.0001
-        #df_newt = lambda w: ALPHA*df_dw_newt(w) + df_w_newt(w)
-        df_newt = lambda w: w*0 + ALPHA - t_jp1_newt
+        df_newt = lambda w: ALPHA*df_dw_newt(w) + df_w_newt(w)
+        #df_newt = lambda w: w*0 + ALPHA - t_jp1_newt
 
         if debug:
             print(f"      Beginning Newton's method with initial guesses w_{j+1} = {w0_jp1_newt}, dw_{j+1} = {dw0_jp1_newt},")
@@ -369,7 +425,6 @@ def scalar_dassl(f, t_0, t_f, y_0, dy_0, h_0, newt_tol, err_tol, debug=False):
     dw_vec = [dy_0]
     h_vec = []
     k_vec = []
-    w_vec_trials = [0]
 
     if dy_0 is None:
         print("ERROR IN scalar_dassl(): NO INITIAL DATA FOR dy_0 NOT YET IMPLEMENTED")
@@ -404,30 +459,24 @@ def scalar_dassl(f, t_0, t_f, y_0, dy_0, h_0, newt_tol, err_tol, debug=False):
             print(f"\n  Iteration ({j}): t_{j} = {t_j}, w_{j} = {w_j}, dw_{j} = {dw_j}")
             print(f"                 h_{j-1} = {h_jm1}, k_{j-1} = {k_jm1}")
         
-        # Vectors of stepsizes, approximations, and BDF orders that have been
-        # trialed for the current time step.
-        t_jp1_trial_vec = []
-        w_jp1_trial_vec = []
-        dw_jp1_trial_vec = []
-        h_j_trial_vec = []
-        k_j_trial_vec = []
+        trial_num = 0
         accept_w_jp1 = False
+        last_err = -1
         
         # Current time step (j) approximation loop.
         # Continue looping until our computed approximation meets certain
         # condtions.
         while not accept_w_jp1:
-            trial_num = len(w_jp1_trial_vec)
             # Determine order of BDF method to use.
             if j == 0: # Use initial values.
                 h_j = h_0
                 k_j = 1
             else:
-                k_j, h_j = calc_ord_stepsize(h_vec, t_vec, w_vec, h_jm1, j, k_jm1, len(w_jp1_trial_vec))
+                k_j, h_j = calc_ord_stepsize(h_vec, t_vec, w_vec, h_vec[-1], j, k_jm1, trial_num, last_err)
 
             # Get the previous (k+1) approximations to use as interpolant nodes
             # in the predictor polynomial.
-            # TODO: maybe this should only be k nodes when creating w_1?
+            # TODO: maybe this should only be k nodes when creating w_1
             t_pred_nodes = [t_vec[j-jj] for jj in range(k_j+1)] # jj in [0, k_j - 1]
             w_pred_nodes = [w_vec[j-jj] for jj in range(k_j+1)]
             dw_pred_nodes = [dw_vec[j-jj] for jj in range(k_j+1)]
@@ -439,48 +488,37 @@ def scalar_dassl(f, t_0, t_f, y_0, dy_0, h_0, newt_tol, err_tol, debug=False):
             # Trial with this step size
             h_j_trial, t_jp1_trial, w0_jp1_trial, w_jp1_trial, dw_jp1_trial =\
                 dassl_step(f, t_pred_nodes, w_pred_nodes, dw_pred_nodes, j, h_j, 1/4, k_j, t_j, w_j, dw_j, newt_tol, debug=debug)
-            h_j_trial_vec.append(h_j_trial)
-            k_j_trial_vec.append(k_j)
-            t_jp1_trial_vec.append(t_jp1_trial)
-            w_jp1_trial_vec.append(w_jp1_trial)
-            dw_jp1_trial_vec.append(dw_jp1_trial)
+            h_vec.append(h_j_trial)
+            k_vec.append(k_j)
+            t_vec.append(t_jp1_trial)
+            w_vec.append(w_jp1_trial)
+            dw_vec.append(dw_jp1_trial)
 
             if debug:
-                print(f"      Trial {trial_num} vectors:  h_{j} = {h_j_trial_vec}")
-                print(f"                        k_{j} = {k_j_trial_vec}")
-                print(f"                        t_{j+1} = {t_jp1_trial_vec}")
-                print(f"                        w_{j+1} = {w_jp1_trial_vec}")
-                print(f"                        dw_{j+1} = {dw_jp1_trial_vec}")
+                print(f"      h_{j} = {h_j_trial}")
+                print(f"      k_{j} = {k_j}")
+                print(f"      t_{j+1} = {t_jp1_trial}")
+                print(f"      w_{j+1} = {w_jp1_trial}")
+                print(f"      dw_{j+1} = {dw_jp1_trial}")
 
             # Now we check that this trial satisfies the error bounds
-            h_vec_temp = h_vec.copy()
-            h_vec_temp.append(h_j_trial)
-            
-            t_vec_temp = t_vec.copy()
-            t_vec_temp.append(t_jp1_trial)
-
             if debug:
-                print(f"      Estimating solution error with h = {h_vec_temp}")
-                print(f"                                     t = {t_vec_temp}")
+                print(f"      Estimating solution error with h = {h_vec}")
+                print(f"                                     t = {t_vec}")
             
-            LTE_j = estimate_LTE(h_vec_temp, t_vec_temp, j, k_j, w0_jp1_trial, w_jp1_trial)
-            interp_err_j = estimate_interp_err(h_vec_temp, t_vec_temp, j, k_j, w0_jp1_trial, w_jp1_trial)
+            LTE_j = estimate_LTE(h_vec, t_vec, j, k_j, w0_jp1_trial, w_jp1_trial)
+            interp_err_j = estimate_interp_err(h_vec, t_vec, j, k_j, w0_jp1_trial, w_jp1_trial)
+            last_err = max(LTE_j, interp_err_j)
 
             if debug:
                 print(f"        LTE error: {LTE_j}")
                 print(f"        Interpolation error: {interp_err_j}")
             
-            if max(LTE_j, interp_err_j) <= err_tol:
+            if last_err <= err_tol:
                 # Step accepted!
-                h_vec.append(h_j_trial)
-                k_vec.append(k_j)
-                t_vec.append(t_jp1_trial)
-                w_vec.append(w_jp1_trial)
-                dw_vec.append(dw_jp1_trial)
                 interval_cov = t_jp1_trial
                 j += 1
                 accept_w_jp1 = True
-                w_vec_trials.append(len(w_jp1_trial_vec))
                 if debug:
                     print(f"      Trial {trial_num} solution ACCEPTED")
                     print(f"        h = {h_vec}")
