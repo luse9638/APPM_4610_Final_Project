@@ -24,6 +24,7 @@ def calc_ord_stepsize(h_vec, t_vec, w_vec, h_prev, j, k_prev, num_fail, last_err
         # Been failing a lot, reset to order 1 and decrease step size again.
         k_new = 1
         h_new = 0.25*h_prev
+
         return k_new, h_new
     elif j <= 1 and last_err <= 1:
         # Don't increase order yet but do increase step size
@@ -472,7 +473,15 @@ def scalar_dassl(f, t_0, t_f, y_0, dy_0, h_0, newt_tol, err_tol, debug=False):
                 h_j = h_0
                 k_j = 1
             else:
-                k_j, h_j = calc_ord_stepsize(h_vec, t_vec, w_vec, h_vec[-1], j, k_jm1, trial_num, last_err)
+                k_j, h_j = calc_ord_stepsize(h_vec, t_vec, w_vec, h_vec[-1], j, k_vec[-1], trial_num, last_err)
+                if trial_num != 0:
+                    # Remove the trialed approximations from last time
+                    h_vec.pop()
+                    k_vec.pop()
+                    t_vec.pop()
+                    w_vec.pop()
+                    dw_vec.pop()
+
 
             # Get the previous (k+1) approximations to use as interpolant nodes
             # in the predictor polynomial.
@@ -505,7 +514,7 @@ def scalar_dassl(f, t_0, t_f, y_0, dy_0, h_0, newt_tol, err_tol, debug=False):
             if debug:
                 print(f"      Estimating solution error with h = {h_vec}")
                 print(f"                                     t = {t_vec}")
-            
+
             LTE_j = estimate_LTE(h_vec, t_vec, j, k_j, w0_jp1_trial, w_jp1_trial)
             interp_err_j = estimate_interp_err(h_vec, t_vec, j, k_j, w0_jp1_trial, w_jp1_trial)
             last_err = max(LTE_j, interp_err_j)
@@ -527,6 +536,7 @@ def scalar_dassl(f, t_0, t_f, y_0, dy_0, h_0, newt_tol, err_tol, debug=False):
                     print(f"        w = {w_vec}")
                     print(f"        dw = {dw_vec}")
             else:
+                trial_num += 1
                 continue
 
     return t_vec, w_vec
