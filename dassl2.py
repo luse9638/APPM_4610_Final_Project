@@ -370,7 +370,7 @@ def dassl_step(f, t_nodes, w_nodes, dw_nodes, j, h_j, h_fac, k_j, t_j, w_j, dw_j
         ALPHA = -alpha_s(k_j) / h_j_newt
         BETA = dw0_jp1_newt - ALPHA*w0_jp1_newt
         f_newt = lambda w: f(t_jp1_newt, w, ALPHA*w + BETA)
-        df_w_newt = lambda w: (f(t_jp1_newt, w, ALPHA*w + BETA)-f(t_jp1_newt, w-0.0001, ALPHA*w + BETA)) / 0.0001
+        df_w_newt = lambda w: (f(t_jp1_newt, w, ALPHA*w + BETA)-f(t_jp1_newt, w-0.0001, ALPHA*(w-0.0001) + BETA)) / 0.0001
         df_dw_newt = lambda w: (f(t_jp1_newt, w, ALPHA*w + BETA)-f(t_jp1_newt, w, ALPHA*w + BETA - 0.0001)) / 0.0001
         df_newt = lambda w: ALPHA*df_dw_newt(w) + df_w_newt(w)
         #df_newt = lambda w: w*0 + ALPHA - t_jp1_newt

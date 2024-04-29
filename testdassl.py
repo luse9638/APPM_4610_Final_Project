@@ -26,6 +26,6 @@ t_0 = 0
 t_f = 1
 newt_tol = 1e-2
 err_tol = 1e-1
-h_0 = 0.1
+h_0 = 0.01
 debug = True
 test_dassl(y, f, y_0, dy_0, t_0, t_f, h_0, newt_tol, err_tol, debug)
