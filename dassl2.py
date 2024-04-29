@@ -108,18 +108,13 @@ def psi(h_vec, t_vec, i, j):
     '''
     assert i >= 1
 
-    if i == 1:
-        h_val = h_vec[-1]
-        t_val = t_vec[-1] - t_vec[-2]
-    else:
-        h_val = sum(h_vec[-i:])
-        t_val = t_vec[-1] - t_vec[-i]
+    h_val = sum(h_vec[-i:])
     
-    print(f"        psi_{i}({j}+1) = {h_val} (h_val) = {t_val} (t_val)")
+    print(f"        psi_{i}({j}+1) = {h_val}")
 
     # Should be the same
     #assert h_val == t_val
-    return t_val
+    return h_val
 
 def alpha(h_vec, t_vec, i, j):
     '''
@@ -229,7 +224,7 @@ def newtons_method(f, df, r_0, tol, N_max, debug=False):
         approximation (double), error_code (int)
     '''
 
-    r_vec = np.zeros(N_max)
+    r_vec = np.zeros(N_max+1)
     r_vec[0] = r_0
 
     # Continue iterating until desired tolerance or max iterations reached
@@ -301,7 +296,7 @@ def dassl_step(f, t_nodes, w_nodes, dw_nodes, j, h_j, h_fac, k_j, t_j, w_j, dw_j
     while newt_iter_count < 10: # Terminate the whole algorithm if
                                 # Newton's refuses to converge.
         # Calculate h_newt_j.
-        h_j_newt = h_j / (h_fac**newt_iter_count)
+        h_j_newt = h_j * (h_fac**newt_iter_count)
         t_jp1_newt = t_j + h_j_newt
 
         # Create initial guesses for w_{j+1} and dw_{j+1}.
@@ -319,7 +314,10 @@ def dassl_step(f, t_nodes, w_nodes, dw_nodes, j, h_j, h_fac, k_j, t_j, w_j, dw_j
         ALPHA = -alpha_s(k_j) / h_j_newt
         BETA = dw0_jp1_newt - ALPHA*w0_jp1_newt
         f_newt = lambda w: f(t_jp1_newt, w, ALPHA*w + BETA)
-        df_newt = lambda w: (f_newt(w)-f_newt(w-h_j_newt)) / h_j_newt
+        df_w_newt = lambda w: (f(t_jp1_newt, w, ALPHA*w + BETA)-f(t_jp1_newt, w-0.0001, ALPHA*w + BETA)) / 0.0001
+        df_dw_newt = lambda w: (f(t_jp1_newt, w, ALPHA*w + BETA)-f(t_jp1_newt, w, ALPHA*w + BETA - 0.0001)) / 0.0001
+        #df_newt = lambda w: ALPHA*df_dw_newt(w) + df_w_newt(w)
+        df_newt = lambda w: w*0 + ALPHA - t_jp1_newt
 
         if debug:
             print(f"      Beginning Newton's method with initial guesses w_{j+1} = {w0_jp1_newt}, dw_{j+1} = {dw0_jp1_newt},")
@@ -334,6 +332,7 @@ def dassl_step(f, t_nodes, w_nodes, dw_nodes, j, h_j, h_fac, k_j, t_j, w_j, dw_j
         if debug:
             print(f"        Newton's method converged? {converged}")
             print(f"        Approximations: w_{j+1} = {w_jp1_newt}, dw_{j+1} = {dw_jp1_newt}")
+            print(f"        f({t_jp1_newt}, {w_jp1_newt}, {dw_jp1_newt}) = {f_newt(w_jp1_newt)}")
 
         # Do we need to retry the method?
         if converged: # No we do not.
@@ -429,9 +428,9 @@ def scalar_dassl(f, t_0, t_f, y_0, dy_0, h_0, newt_tol, err_tol, debug=False):
             # Get the previous (k+1) approximations to use as interpolant nodes
             # in the predictor polynomial.
             # TODO: maybe this should only be k nodes when creating w_1?
-            t_pred_nodes = [t_vec[j-jj] for jj in range(k_j)] # jj in [0, k_j - 1]
-            w_pred_nodes = [w_vec[j-jj] for jj in range(k_j)]
-            dw_pred_nodes = [dw_vec[j-jj] for jj in range(k_j)]
+            t_pred_nodes = [t_vec[j-jj] for jj in range(k_j+1)] # jj in [0, k_j - 1]
+            w_pred_nodes = [w_vec[j-jj] for jj in range(k_j+1)]
+            dw_pred_nodes = [dw_vec[j-jj] for jj in range(k_j+1)]
 
             if debug:
                 print(f"    Trial {trial_num}: using k_{j} = {k_j}, h_{j} = {h_j}")
@@ -447,7 +446,7 @@ def scalar_dassl(f, t_0, t_f, y_0, dy_0, h_0, newt_tol, err_tol, debug=False):
             dw_jp1_trial_vec.append(dw_jp1_trial)
 
             if debug:
-                print(f"      Trial {j} vectors:  h_{j} = {h_j_trial_vec}")
+                print(f"      Trial {trial_num} vectors:  h_{j} = {h_j_trial_vec}")
                 print(f"                        k_{j} = {k_j_trial_vec}")
                 print(f"                        t_{j+1} = {t_jp1_trial_vec}")
                 print(f"                        w_{j+1} = {w_jp1_trial_vec}")
@@ -491,5 +490,7 @@ def scalar_dassl(f, t_0, t_f, y_0, dy_0, h_0, newt_tol, err_tol, debug=False):
                     print(f"        dw = {dw_vec}")
             else:
                 continue
+
+    return t_vec, w_vec
 
 
