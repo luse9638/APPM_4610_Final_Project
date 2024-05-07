@@ -45,6 +45,7 @@ def drive_RK_var(y, dy, a, b, alpha, N, methods, tol, q_fac, debug=False):
         ax_error.semilogy(t_m_var_vec, err_m_var_vec, marker=".", label=f"Var. RK-{m}")
 
     ax_approx.plot(t_vec, y_vec, label="Actual")
+    ax_error.plot(t_vec, [tol] * len(t_vec), label="LTE tol")
 
     ax_approx.legend()
     ax_error.legend()
@@ -57,7 +58,7 @@ alpha = 1
 N = 1
 y_1 = lambda t: 3*np.exp(t-1) - t - 1
 #drive_RK(y_1, dy_1, a, b, alpha, N, [3, 4])
-N = 10
+N = 100
 tol = 1e-1
 q_fac = 0.9
 debug = False

@@ -17,34 +17,32 @@ MAX_H = 0.1
 def calc_ord_stepsize(h_vec, t_vec, w_vec, h_prev, j, k_prev, num_fail, last_err):
     '''
     '''
-    assert j >= 1
     num_steps = len(t_vec)
 
     if num_fail >= 3:
         # Been failing a lot, reset to order 1 and decrease step size again.
         k_new = 1
         h_new = 0.25*h_prev
-
         return k_new, h_new
-    elif j <= 1 and last_err <= 1:
+    elif j <= 1 and num_fail == 0:
         # Don't increase order yet but do increase step size
         k_new = 1
         h_new = min(2*h_prev, MAX_H)
         return k_new, h_new
-    elif j <= 1 and last_err > 1:
+    elif j <= 1 and num_fail >= 1:
         # Don't increase order, decrease step size
         k_new = 1
-        h_new = 0.9*h_prev
+        h_new = 0.5*h_prev
         return k_new, h_new
-    elif 2 <= j and j <= 4 and last_err <= 1:
+    elif 2 <= j and j <= 4 and num_fail == 0:
         # Increase order and step size
         k_new = min(k_prev+1, MAX_ORDER)
         h_new = min(2*h_prev, MAX_H)
         return k_new, h_new
-    elif 3 <= j and j <= 4 and last_err > 1:
-        # Increase order but decrease step size
-        k_new = min(k_prev+1, MAX_ORDER)
-        h_new = 0.9*h_prev
+    elif 2 <= j and j <= 4 and num_fail >= 1:
+        # Keep order but decrease step size
+        k_new = k_prev
+        h_new = 0.5*h_prev
         return k_new, h_new
     elif num_steps < k_prev+2:
         # Don't have enough approximations to do Taylor estimates
@@ -56,7 +54,7 @@ def calc_ord_stepsize(h_vec, t_vec, w_vec, h_prev, j, k_prev, num_fail, last_err
         else:
             # Decrease step size and order
             k_new = max(k_prev-1, 1)
-            h_new = 0.25*h_prev
+            h_new = 0.5*h_prev
             return k_new, h_new
     else:
         # We have at least (k+3) previous steps, so we can do Taylor estimates
@@ -368,7 +366,8 @@ def dassl_step(f, t_nodes, w_nodes, dw_nodes, j, h_j, h_fac, k_j, t_j, w_j, dw_j
             dw0_jp1_newt = eval_interp_poly(t_nodes, dw_nodes, t_jp1_newt)
 
         # Create functions to run Newton's method on.
-        ALPHA = -alpha_s(k_j) / h_j_newt
+        alphas = -sum(1/jj for jj in range(1, k_j+2))
+        ALPHA = -alphas / h_j_newt
         BETA = dw0_jp1_newt - ALPHA*w0_jp1_newt
         f_newt = lambda w: f(t_jp1_newt, w, ALPHA*w + BETA)
         df_w_newt = lambda w: (f(t_jp1_newt, w, ALPHA*w + BETA)-f(t_jp1_newt, w-0.0001, ALPHA*(w-0.0001) + BETA)) / 0.0001
@@ -469,19 +468,17 @@ def scalar_dassl(f, t_0, t_f, y_0, dy_0, h_0, newt_tol, err_tol, debug=False):
         # condtions.
         while not accept_w_jp1:
             # Determine order of BDF method to use.
-            if j == 0: # Use initial values.
-                h_j = h_0
-                k_j = 1
+            if j == 0:
+                k_j, h_j = calc_ord_stepsize(h_vec, t_vec, w_vec, h_0, j, 1, trial_num, last_err)
             else:
                 k_j, h_j = calc_ord_stepsize(h_vec, t_vec, w_vec, h_vec[-1], j, k_vec[-1], trial_num, last_err)
-                if trial_num != 0:
-                    # Remove the trialed approximations from last time
-                    h_vec.pop()
-                    k_vec.pop()
-                    t_vec.pop()
-                    w_vec.pop()
-                    dw_vec.pop()
-
+            if trial_num != 0:
+                # Remove the trialed approximations from last time
+                h_vec.pop()
+                k_vec.pop()
+                t_vec.pop()
+                w_vec.pop()
+                dw_vec.pop()
 
             # Get the previous (k+1) approximations to use as interpolant nodes
             # in the predictor polynomial.
@@ -515,9 +512,29 @@ def scalar_dassl(f, t_0, t_f, y_0, dy_0, h_0, newt_tol, err_tol, debug=False):
                 print(f"      Estimating solution error with h = {h_vec}")
                 print(f"                                     t = {t_vec}")
 
-            LTE_j = estimate_LTE(h_vec, t_vec, j, k_j, w0_jp1_trial, w_jp1_trial)
-            interp_err_j = estimate_interp_err(h_vec, t_vec, j, k_j, w0_jp1_trial, w_jp1_trial)
-            last_err = max(LTE_j, interp_err_j)
+            alpha = np.zeros(k_j+1)
+
+            for i in range(1, k_j+1):
+                alpha[i - 1] = h_j_trial / (t_jp1_trial - t_vec[-i-1])
+
+            if len(t_vec) >= k_j+2:
+                t0 = t_vec[-k_j-2]
+            elif len(t_vec) >= 3:
+                # Choosing an arbitrary value for t[0] as in the Julia code
+                h1 = t_vec[1] - t_vec[0]
+                t0 = t_vec[0] - h1
+            else:
+                t0 = t_vec[0] - h_j_trial
+            alpha[k_j] = h_j_trial / (t_jp1_trial - t0)
+            alpha0 = -sum(alpha[:k_j])
+            alphas = -sum(1/jj for jj in range(1, k_j+2))
+
+            LTE_j = abs(alpha[k_j] + alphas - alpha0)
+            interp_err_j = abs(alpha[k_j])
+
+            # LTE_j = estimate_LTE(h_vec, t_vec, j, k_j, w0_jp1_trial, w_jp1_trial)
+            # interp_err_j = estimate_interp_err(h_vec, t_vec, j, k_j, w0_jp1_trial, w_jp1_trial)
+            last_err = max(LTE_j, interp_err_j) * abs(w_jp1_trial-w0_jp1_trial)
 
             if debug:
                 print(f"        LTE error: {LTE_j}")
