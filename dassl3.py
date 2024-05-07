@@ -1,5 +1,6 @@
 # Imports ######################################################################
 import numpy as np
+import scipy as sp
 ################################################################################
 
 
@@ -93,6 +94,9 @@ def interpolate_highest_derivative(x, y):
 
 def numerical_jacobian(F, rel_tol, abs_tol):
     def numjac(t, y, dy, alpha):
+        print(f"numerical_jacobian(): t = {t}")
+        print(f"numerical_jacobian(): y = {y}")
+        print(f"numerical_jacobian(): dy = {dy}")
         ep = np.finfo(float).eps  # machine epsilon
         h = 1 / alpha
         wt = dassl_weights(y, rel_tol, abs_tol)
@@ -162,12 +166,12 @@ def start_dassl(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, 
     n = len(y_0) # Number of dependent variables.
 
     #t = np.full(max_nodes, None)
-    t = np.array(t_0)
+    t = np.array([t_0])
     #w = np.full((max_nodes, n), None) # Each row is all variables at a time step, 
                                       # each column a variable at all time steps
-    w = np.array(y_0)
+    w = np.array([y_0])
     #dw = np.full((max_nodes, n), None)
-    dw = np.array(dy_0)
+    dw = np.array([dy_0])
     h = []
     k = []
 
@@ -213,13 +217,14 @@ def dassl(F, t, w, dw, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_m
     max_nodes = max_steps + 1
     n = len(y_0)
 
-    t_out = np.array(t_0)
+    t_out = np.array([t_0])
     #w_out = np.full((max_nodes, n), None) # Each row is all variables at a time 
                                           # step, each column a variable at all
                                           # time steps.
-    w_out = np.array(y_0)
+    w_out = np.array([y_0])
+    #print(f"dassl(): w_out = {w_out}")
     #dw_out = np.full((max_nodes, n), None)
-    dw_out = np.array(dy_0)
+    dw_out = np.array([dy_0])
     h_out = []
     k_out = []
 
@@ -327,11 +332,18 @@ def dassl_stepper(F, t, w, dw, h_next, jd, jacobian, weights, norm_w, ord, max_o
     status, err, w_c, dw_c, jd
     """
 
-    n = len(w[0]) # Number of dependent variables.
+    if w.ndim == 1:
+        n = len(w) # Number of dependent variables.
+    elif w.ndim == 2:
+        n = len(w[0])
+    else:
+        raise ValueError(f"dassl_stepper(): w = {w} is not 1 or 2 dimensional")
 
     # Construct nodes for use in predictor polynomial.
+    print(f"dassl_stepper(): t = {t}")
     t_nodes = t[-ord:]
-    w_nodes = t[-ord:]
+    w_nodes = w[-ord:]
+    print(f"dassl_stepper(): t_nodes = {t_nodes}, w_nodes = {w_nodes}")
 
     # Next time step.
     t_next = t_nodes[-1] + h_next
@@ -349,11 +361,13 @@ def dassl_stepper(F, t, w, dw, h_next, jd, jacobian, weights, norm_w, ord, max_o
         beta = -dw_0 - (2*w_0)/h_next
     else: # Not the first time step.
         # Use predictor polynomial for initial guess.
+        print(f"dassl_stepper(): Interpolating!")
         w_0 = interpolate_at(t_nodes, w_nodes, t_next)
         dw_0 = interpolate_derivative_at(t_nodes, w_nodes, t_next)
         alpha = -alpha_s / h_next
         beta = dw_0 - alpha*w_0
     
+    print(f"dassl_stepper(): w_0 = {w_0}, dw_0 = {dw_0}")
     # Define function to run Newton's method on.
     F_newt = lambda w_c: F(t_next, w_c, alpha*w_c + beta)
 
@@ -403,14 +417,15 @@ def dassl_corrector(F_newt, alpha_new, jd, jac_new, w_0, norm_w):
         jd = Jac_Data(alpha_new, jac_new())
         
         # Run corrector.
-        f_newt = lambda w_c: -np.linalg.solve(jd.jac, F_newt)
+        print(f"dassl_corrector(): jd.jac = {jd.jac}, F_newt = {F_newt}")
+        f_newt = lambda w_c: -np.linalg.solve(jd.jac, F_newt(w_c))
         status, w_c = dassl_newton(f_newt, w_0, norm_w)
     else: # Use old Jacobian and see what happens.
         # Convergence speed up factor.
         c = 2*jd.alpha / (alpha_new+jd.alpha)
 
         # Run corrector.
-        f_newt = lambda w_c: -c * np.linalg.solve(jd.jac, F_newt)
+        f_newt = lambda w_c: -c * np.linalg.solve(jd.jac, F_newt(w_c))
         status, w_c = dassl_newton(f_newt, w_0, norm_w)
 
         if status == -1: # Corrector didn't converge with old Jacobian so we
