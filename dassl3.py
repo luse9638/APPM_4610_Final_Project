@@ -1,7 +1,5 @@
 # Imports ######################################################################
 import numpy as np
-import scipy as sp
-import matplotlib.pyplot as plt
 ################################################################################
 
 
@@ -127,9 +125,9 @@ def dassl_norm(v, weights):
     norm_result = np.linalg.norm(v_div_weights)
     return norm_result / np.sqrt(len(v))
 
-def dassl_solve(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, max_ord):
+def start_dassl(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, max_ord):
     """
-    Run DASSL to approximate the solution to F(t, y, dy) = 0 on interval 
+    Initialize DASSL to approximate the solution to F(t, y, dy) = 0 on interval 
     [t_0, t_f] using initial data y_0 and dy_0.
 
     ## Parameters
@@ -146,7 +144,7 @@ def dassl_solve(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, 
     @max_ord: upper bound on order.
 
     ## Returns
-    (w, dw)
+    (t, w, dw)
     """
 
     # Predicates.
@@ -174,16 +172,19 @@ def dassl_solve(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, 
     k = []
 
     # Run DASSL.
-    dassl_step(F, t, w, dw, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, max_ord)
+    dassl(F, t, w, dw, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, max_ord)
 
-def dassl_step(F, t, w, dw, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, max_ord):
+    return t, w, dw
+
+def dassl(F, t, w, dw, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, max_ord):
     """
-    Perform a single time-step of the DASSL algorithm.
+    Run the DASSL algorithm.
 
     ## Parameters
     @F: vector of n equations satisfying F_i(t, y, dy) = 0, 0 <= i <= n-1.
     @t: output vector of time nodes.
     @w: output vector of approximation nodes.
+    @dw: output vector of derivative approximation nodes.
     @t_0: left endpoint of interval.
     @t_f: right endpoint of interval.
     @y_0: vector of initial values satisfying y_i(t_0) = y_0_i.
