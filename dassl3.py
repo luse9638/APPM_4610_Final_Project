@@ -6,12 +6,12 @@ import matplotlib.pyplot as plt
 
 # Classes ######################################################################
 class Jac_Data:
-    def __init__(self, a, jac):
-        self.a = a
+    def __init__(self, alpha, jac):
+        self.alpha = alpha
         self.jac = jac
     
     def __repr__(self):
-        return f"JacData(a = {self.a}, jac = {self.jac})"
+        return f"JacData(a = {self.alpha}, jac = {self.jac})"
 ################################################################################
 
 # Subroutines ##################################################################
@@ -99,6 +99,29 @@ def last_elements(arr, n=1):
     else:
         # Return the last 'n' non-None elements/rows
         return arr[valid_indices[-n:]]
+
+def numerical_jacobian(F, rel_tol, abs_tol):
+    def numjac(t, y, dy, alpha):
+        ep = np.finfo(float).eps  # machine epsilon
+        h = 1 / alpha
+        wt = dassl_weights(y, rel_tol, abs_tol)
+        # delta for approximation of the jacobian
+        edelta = np.diag(np.maximum(np.abs(y), np.maximum(np.abs(h * dy), wt)) * np.sqrt(ep))
+        
+        b = dy - alpha * y
+        def f(y1):
+            return F(t, y1, alpha * y1 + b)
+        
+        n = len(y)
+        jac = np.zeros((n, n), dtype=float)
+        for i in range(n):
+            delta_i = np.zeros(n)
+            delta_i[i] = edelta[i, i]
+            jac[:, i] = (f(y + delta_i) - f(y)) / edelta[i, i]
+        
+        return jac
+    
+    return numjac
 ################################################################################
 
 # Constants ####################################################################
@@ -210,6 +233,9 @@ def dassl_step(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, o
     h_out = np.full(max_nodes, None)
     k_out = np.full(max_nodes, None)
 
+    jd = Jac_Data(0, np.full((n, n), None))
+    jacobian = numerical_jacobian(F, rel_tol, abs_tol)
+
     ord = 1
     h = h_init
 
@@ -235,7 +261,7 @@ def dassl_step(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, o
 
         # TODO: call stepper here
 
-def dassl_stepper(F, t, w, dw, h_next, jd, weights, norm_w, ord, ord_max):
+def dassl_stepper(F, t, w, dw, h_next, jd, jacobian, weights, norm_w, ord, ord_max):
     """
     Runs a single time-step of the DASSL algorithm.
 
@@ -246,6 +272,7 @@ def dassl_stepper(F, t, w, dw, h_next, jd, weights, norm_w, ord, ord_max):
     @dw: ???
     @h_next: ???
     @jd: ???
+    @jacobian: ???
     @weights: ???
     @norm_w: ???
     @ord: ???
@@ -260,20 +287,52 @@ def dassl_stepper(F, t, w, dw, h_next, jd, weights, norm_w, ord, ord_max):
     t_nodes = last_elements(t, ord)
     w_nodes = last_elements(w, ord)
 
+    # Next time step.
+    t_next = t_nodes[-1] + h_next
+
     # Used in error calculations.
     #alpha_s = -sum(1/j for j in range(1, ord+2)) # j in [1, ord+1]
     alpha_s = -sum(1/j for j in range(1, ord+1)) # j in [1, ord]
 
+    # Create initial guesses and calculate alpha and beta.
     if len(w) == 1: # First time step.
+        # Just use 1st order taylor for initial guess.
         dw_0 = dw[0]
         w_0 = w[0] + h_next*dw_0
-
-        # Alpha and beta values.
         alpha = 2 / h_next
         beta = -dw_0 - (2*w_0)/h_next
     else: # Not the first time step.
-        # TODO: create approximations using predictor polynomial.
-        pass
+        # Use predictor polynomial for initial guess.
+        w_0 = interpolate_at(t_nodes, w_nodes, t_next)
+        dw_0 = interpolate_derivative_at(t_nodes, w_nodes, t_next)
+        alpha = -alpha_s / h_next
+        beta = dw_0 - alpha*w_0
+    
+    # Define function to run Newton's method on.
+    F_newt = lambda w_c: F(t_next, w_c, alpha*w_c + beta)
+
+    # Define new Jacobian function of F_newt.
+    F_newt_jac_new = jacobian(t_next, w_0, dw_0, alpha)
+
+    # TODO: call corrector here
+
+def dassl_corrector(F_newt, alpha_new, jd, jac_new, y0, norm_w):
+    """
+    Correct an initial DASSL guess.
+
+    ## Parameters
+    @F_newt: ???
+    @alpha_new: ???
+    @jd: ???
+    @jac_new: ???
+    @y0: ???
+    @norm_w: ???
+
+    ## Returns
+    """
+
+    # Compute new Jacobian if needed.
+
 
         
         
