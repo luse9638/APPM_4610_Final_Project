@@ -1,6 +1,7 @@
 # Imports ######################################################################
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from dassl3 import start_dassl
 ################################################################################
 
@@ -11,16 +12,23 @@ def test_dassl(F, y0, dy0, y, t_0, t_f, rel_tol, abs_tol, h_init, h_min, h_max, 
 
     # Assuming start_dassl is the solver which must be defined appropriately
     # Placeholder values for demonstration:
-    t_ap, w, _ = start_dassl(F, t_0, t_f, y0, dy0, rel_tol, abs_tol, h_init, h_min, h_max, max_ord)
+    t_ap, w, _, k = start_dassl(F, t_0, t_f, y0, dy0, rel_tol, abs_tol, h_init, h_min, h_max, max_ord)
+    k = np.append(0, k)
 
     # Plot solutions
     plt.figure("Solutions")
     for i in range(y_sol.shape[1]):  # Number of solution components
-        plt.plot(t_sol, y_sol[:, i], label=f"y_{i}(t) true")  # Corrected plotting
-        plt.plot(t_ap, w[:, i], "-o", label=f"w_{i}(t) approx")
+        plt.plot(t_sol, y_sol[:, i], label=f"y_{i}(t)")  # Corrected plotting
+        plt.plot(t_ap, w[:, i], "-", label=f"w_{i}(t)")
+        cmap = plt.cm.viridis  # You can choose any other colormap
+        norm = mcolors.Normalize(vmin=np.min(k), vmax=np.max(k))
+        scatter = plt.scatter(t_ap, w[:, i], c=k, cmap=cmap, norm=norm, edgecolor='black')
+        if i == 0:
+            cbar = plt.colorbar(scatter)
+            cbar.set_label('BDF Order')
     plt.xlabel("t")
     plt.ylabel("Solution and Approximation")
-    plt.title("Actual Solution vs. DASSL Approximation")
+    plt.title("Actual Solution y(t) vs. DASSL Approximation w(t)")
     plt.legend()
 
     # Plot error
@@ -39,26 +47,24 @@ def test_dassl(F, y0, dy0, y, t_0, t_f, rel_tol, abs_tol, h_init, h_min, h_max, 
 
     plt.show()
 
-f_0 = lambda t, y, dy: 0*t + dy[0] + y[1]
-f_1 = lambda t, y, dy: 0*t + dy[1] - y[0]
+f_0 = lambda t, y, dy: dy[0] - 4*y[0] + 3*y[1] - t
+f_1 = lambda t, y, dy: dy[1] - 2*y[0] + y[1] - np.exp(t)
 F = lambda t, y, dy: np.array([f_0(t, y, dy), f_1(t, y, dy)])
-y0 = np.array([1, 2])
+y0 = np.array([0, 0])
 dy0 = np.array([1, 1])
 
-# y_0(t) = (8/5)exp(-t) - (8/5)exp(4t)
-# y_1(t) = (-8/5)exp(-t) - (12/5)exp(4t)
-y_0 = lambda t: np.cos(t) - 2*np.sin(t)
-y_1 = lambda t: np.sin(t) + 2*np.cos(t)
+y_0 = lambda t: 3*np.exp(t)*t + t/2 + np.exp(t) - 9*np.exp(2*t)/4 + 5/4
+y_1 = lambda t: 3*np.exp(t)*t + t - 3*np.exp(2*t)/2 + 3/2
 y = lambda t: np.array([y_0(t), y_1(t)])
 
 t_0 = 0
 t_f = 5
-rel_tol = 1e-4
-abs_tol = 1e-5
+rel_tol = 1e-3
+abs_tol = 1e-4
 h_init = 0.1
 h_min = 1e-8
-h_max = 0.2
-max_ord = 6
+h_max = 1
+max_ord = 15
 
 test_dassl(F, y0, dy0, y, t_0, t_f, rel_tol, abs_tol, h_init, h_min, h_max, max_ord)
 
