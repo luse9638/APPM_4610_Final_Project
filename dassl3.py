@@ -4,6 +4,12 @@ import scipy as sp
 import matplotlib.pyplot as plt
 ################################################################################
 
+
+# Constants ####################################################################
+MACHINE_EPS = np.finfo(np.float64).eps
+################################################################################
+
+
 # Classes ######################################################################
 class Jac_Data:
     def __init__(self, alpha, jac):
@@ -13,6 +19,7 @@ class Jac_Data:
     def __repr__(self):
         return f"JacData(a = {self.alpha}, jac = {self.jac})"
 ################################################################################
+
 
 # Subroutines ##################################################################
 def interpolate_at(x, y, x_0):
@@ -68,6 +75,24 @@ def interpolate_derivative_at(x, y, x_0):
 
     return p
 
+def interpolate_highest_derivative(x, y):
+    if len(x) != len(y):
+        raise ValueError("x and y have to be of the same size.")
+
+    n = len(x)
+    p = 0
+
+    for i in range(n):
+        Li = 1
+        for j in range(n):
+            if j == i:
+                continue
+            else:
+                Li *= 1 / (x[i] - x[j])
+        p += Li * y[i]
+
+    return np.math.factorial(n - 1) * p
+
 def numerical_jacobian(F, rel_tol, abs_tol):
     def numjac(t, y, dy, alpha):
         ep = np.finfo(float).eps  # machine epsilon
@@ -92,9 +117,6 @@ def numerical_jacobian(F, rel_tol, abs_tol):
     return numjac
 ################################################################################
 
-# Constants ####################################################################
-MACHINE_EPS = np.finfo(np.float64).eps
-################################################################################
 
 # DASSL ########################################################################
 def dassl_weights(v, rel_tol, abs_tol):
@@ -105,7 +127,7 @@ def dassl_norm(v, weights):
     norm_result = np.linalg.norm(v_div_weights)
     return norm_result / np.sqrt(len(v))
 
-def dassl_solve(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, ord_max):
+def dassl_solve(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, max_ord):
     """
     Run DASSL to approximate the solution to F(t, y, dy) = 0 on interval 
     [t_0, t_f] using initial data y_0 and dy_0.
@@ -121,7 +143,7 @@ def dassl_solve(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, 
     @h_init: initial step size to use.
     @h_min: lower bound on step size.
     @h_max: upper bound on step size.
-    @ord_max: upper bound on order.
+    @max_ord: upper bound on order.
 
     ## Returns
     (w, dw)
@@ -133,7 +155,7 @@ def dassl_solve(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, 
     assert h_init >= h_min
     assert h_init <= h_max
     assert h_min < h_max
-    assert ord_max >= 1
+    assert max_ord >= 1
 
     # Initialize approximation vectors.
     interval_len = t_f - t_0
@@ -151,17 +173,17 @@ def dassl_solve(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, 
     h = []
     k = []
 
-    # Time-stepping loop.
-    while t[-1] < t_f: # Continue time-stepping until we cover the interval.
-        # TODO: call dassl_step() here
-        pass
+    # Run DASSL.
+    dassl_step(F, t, w, dw, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, max_ord)
 
-def dassl_step(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, ord_max):
+def dassl_step(F, t, w, dw, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, max_ord):
     """
     Perform a single time-step of the DASSL algorithm.
 
     ## Parameters
     @F: vector of n equations satisfying F_i(t, y, dy) = 0, 0 <= i <= n-1.
+    @t: output vector of time nodes.
+    @w: output vector of approximation nodes.
     @t_0: left endpoint of interval.
     @t_f: right endpoint of interval.
     @y_0: vector of initial values satisfying y_i(t_0) = y_0_i.
@@ -171,7 +193,7 @@ def dassl_step(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, o
     @h_init: initial step size to use.
     @h_min: lower bound on step size.
     @h_max: upper bound on step size.
-    @ord_max: upper bound on order.
+    @max_ord: upper bound on order.
 
     ## Returns
     """
@@ -182,7 +204,7 @@ def dassl_step(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, o
     assert h_init >= h_min
     assert h_init <= h_max
     assert h_min < h_max
-    assert ord_max >= 1
+    assert max_ord >= 1
 
     # Initialize.
     interval_len = t_f - t_0
@@ -229,7 +251,7 @@ def dassl_step(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, o
         norm_w = lambda v: dassl_norm(v, weights)
 
         # Take a time step!
-        status, err, w_jp1, dw_jp1, jd = dassl_stepper(F, t_out, w_out, dw_out, h, jd, jacobian, weights, norm_w, ord, ord_max)
+        status, err, w_jp1, dw_jp1, jd = dassl_stepper(F, t_out, w_out, dw_out, h, jd, jacobian, weights, norm_w, ord, max_ord)
 
         # Did the step work?
         if status == -1: # Newton iteration failed to converge. Reduce step size
@@ -242,14 +264,48 @@ def dassl_step(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, o
                       # order.
             num_fail += 1
             num_rejected += 1
+            
             # Temporarily add new step to t_out and w_out since they are needed
             # by new_step_order()
-            t_out = np.vstack((t_out, t_out[-1]+h))
+            t_out = np.append(t_out, t_out[-1] + h)
             w_out = np.vstack((w_out, w_jp1))
 
-            # TODO: call new_step_order()
+            # Determine new step size and order.
+            r, new_ord = dassl_new_step_order(t_out, w_out, norm_w, err, num_fail, ord, max_ord)
 
-def dassl_stepper(F, t, w, dw, h_next, jd, jacobian, weights, norm_w, ord, ord_max):
+            # Remove the temporary steps from before.
+            t_out = t_out[:-1]
+            w_out = w_out[:-1]
+
+            # Change step size and order
+            h *= r
+            ord = new_ord
+            continue
+        else: # Step accepted!
+            num_fail = 0
+
+            # Save the results.
+            t_out = np.append(t_out, t_out[-1] + h)
+            w_out = np.vstack((w_out, w_jp1))
+            dw_out = np.vstack((dw_out, dw_jp1))
+
+            # Remove old results.
+            if len(t_out) > ord+3:
+                t_out = t_out[1:]
+                w_out = w_out[1:]
+                dw_out = dw_out[1:]
+            
+            # Add results to the output vectors.
+            t = np.append(t, t_out[-1])
+            w = np.vstack((w, w_out[-1]))
+            dw = np.vstack((dw, dw_out[-1]))
+
+            # Determine new step size and order.
+            r, new_ord = dassl_new_step_order(t_out, w_out, norm_w, err, num_fail, ord, max_ord)
+            h *= r
+            ord = new_ord
+            
+def dassl_stepper(F, t, w, dw, h_next, jd, jacobian, weights, norm_w, ord, max_ord):
     """
     Runs a single time-step of the DASSL algorithm.
 
@@ -264,7 +320,7 @@ def dassl_stepper(F, t, w, dw, h_next, jd, jacobian, weights, norm_w, ord, ord_m
     @weights: ???
     @norm_w: ???
     @ord: ???
-    @ord_max: ???
+    @max_ord: ???
 
     ## Returns
     status, err, w_c, dw_c, jd
@@ -430,7 +486,86 @@ def dassl_new_step_order(t, w, norm_w, err, num_fail, ord, max_ord):
             new_ord = max(1, ord-1)
     else:
         # We have enough steps to do Taylor estimates.
-        pass
+        r, new_ord = dassl_new_step_order_taylor(t, w, norm_w, err, ord, max_ord)
+        r = dassl_normalize_step(r, num_fail)
+        if num_fail > 0: # Don't increase order
+            new_ord = min(new_ord, ord)
+    
+    return r, new_ord
+
+def dassl_new_step_order_taylor(t, w, norm_w, err, ord, max_ord):
+    """
+    Calculate step size and order.
+    """
+    errors = dassl_taylor_error_estimates(t, w, norm_w, ord)
+    errors[ord-1] = err  
+    errors_len = len(errors)
+
+    # Are the errors geometrically monotone increasing or decreasing?
+    range_idx = range(max(ord - 2, 1) - 1, min(errors_len, max_ord))
+    errors_dec = all(np.diff([errors[i] for i in range_idx]) < 0)
+    errors_inc = all(np.diff([errors[i] for i in range_idx]) > 0)
+
+    if errors_len == ord + 1 and errors_dec:
+        new_ord = min(ord + 1, max_ord)
+    elif errors_len > 1 and errors_inc:
+        new_ord = max(ord - 1, 1)
+    else:
+        new_ord = ord
+
+    est = errors[new_ord-1]  # adjust for zero-based indexing
+
+    # Initial guess for the new step size multiplier
+    r = (2*est+0.0001) ** (-1/(new_ord+1))
+
+    return r, new_ord
+
+def dassl_taylor_error_estimates(t, w, norm_w, ord):
+    """
+    Estimates DASSL error.
+    """
+    n = len(t)
+    h = t[-1] - t[-2]
+
+    if n < ord + 2:
+        raise ValueError(f"dassl_taylor_error_estimates() called with too few steps (n = {n}).")
+
+    errors = np.zeros(ord)
+
+    # Errors for order ord-2, ord-1, and ord.
+    for i in range(max(ord - 2, 1), ord + 1):
+        max_d = interpolate_highest_derivative(t[-(i + 1):], w[-(i + 1):])
+        errors[i - 1] = h**(i + 1) * norm_w(max_d)
+
+    # Error for order ord+1 if possible.
+    if n >= ord + 3:
+        h_n = np.diff(t[-(ord + 2):])
+        if np.all(h_n == h_n[0]):
+            max_d = interpolate_highest_derivative(t[-(ord + 2):], w[-(ord + 2):])
+            errors = np.append(errors, h ** (ord + 2) * norm_w(max_d))
+
+    return errors
+
+def dassl_normalize_step(r, num_fail):
+    if num_fail == 0:
+        # w_j was accepted, first attempt at w_{j+1}
+        if r >= 2:
+            r_new = 2
+        elif r < 1:
+            r_new = max(1/2, min(r, 9/10))
+        else:
+            r_new = 1
+    elif num_fail == 1:
+        # Second attempt at w_{j+1}
+        r_new = max(1/4, 9/10 * min(r, 1))
+    else:
+        r_new = 1/4
+    
+    return r_new
+    
+        
+
+
 
 
 
