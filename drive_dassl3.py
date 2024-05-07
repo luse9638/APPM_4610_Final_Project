@@ -29,18 +29,24 @@ def test_1():
     h_max = 0.2
     max_ord = 6
 
-
-    t_ap, w, dw = start_dassl(F, t_0, t_f, y0, dy0, rel_tol, abs_tol, h_init,\
-                              h_min, h_max, max_ord)
-
     N = 100
     t_sol = np.linspace(t_0, t_f, N)
     y_0_sol = y_0(t_sol)
     y_1_sol = y_1(t_sol)
+
+    
+    t_ap, w, dw = start_dassl(F, t_0, t_f, y0, dy0, rel_tol, abs_tol, h_init,\
+                            h_min, h_max, max_ord)
+    
     plt.plot(t_sol, y_0_sol)
     plt.plot(t_sol, y_1_sol)
-    plt.legend(["y_0(t)", "y_1(t)"])
+    plt.plot(t_ap, w[:, 0])
+    plt.plot(t_ap, w[:, 1])
+    plt.legend(["y_0(t)", "y_1(t)", "w_0(t)", "w_1(t)"])
+    # plt.legend(["w_0(t)", "w_1(t)"])
     plt.show()
+    
+    
 
 test_1()
 

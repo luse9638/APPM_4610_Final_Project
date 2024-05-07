@@ -176,7 +176,7 @@ def start_dassl(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, 
     k = []
 
     # Run DASSL.
-    dassl(F, t, w, dw, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, max_ord)
+    t, w, dw = dassl(F, t, w, dw, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, max_ord)
 
     return t, w, dw
 
@@ -310,6 +310,8 @@ def dassl(F, t, w, dw, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_m
             r, new_ord = dassl_new_step_order(t_out, w_out, norm_w, err, num_fail, ord, max_ord)
             h *= r
             ord = new_ord
+
+    return t, w, dw
             
 def dassl_stepper(F, t, w, dw, h_next, jd, jacobian, weights, norm_w, ord, max_ord):
     """
