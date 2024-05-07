@@ -242,8 +242,10 @@ def dassl_step(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, o
     num_rejected = 0
     num_fail = 0
 
-    # TODO: run a single iteration of stepper here if initial derivative data is
-    # missing.
+    # Improve initial derivative guess.
+    weights_init = dassl_weights(y_0, 1, 1)
+    norm_init = lambda v: dassl_norm(v, weights_init)
+    _, _, _, dw_out[0], _ = dassl_stepper(F, t_out, w_out, dw_out, 10*MACHINE_EPS, jd, jacobian, weights_init, norm_init, 1, 1)
 
     while last_elements(t_out) < t_f:
         # Set initial step size and check for errors.
@@ -259,7 +261,23 @@ def dassl_step(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, o
         weights = dassl_weights(last_elements(w_out), rel_tol, abs_tol)
         norm_w = lambda v: dassl_norm(v, weights)
 
-        # TODO: call stepper here
+        # Take a time step!
+        status, err, w_n, dw_n, jd = dassl_stepper(F, t_out, w_out, dw_out, h, jd, jacobian, weights, norm_w, ord, ord_max)
+
+        # Did the step work?
+        if status == -1: # Newton iteration failed to converge. Reduce step size
+                         # and retry.
+            num_fail += 1
+            num_rejected += 1
+            h *= 1/4
+            continue
+        elif err > 1: # Error is too large, retry with a new step size and/or
+                      # order.
+            num_fail += 1
+            num_rejected += 1
+            # Temporarily add new step to t_out and w_out sicne they are needed
+            # by new_step_order()
+            
 
 def dassl_stepper(F, t, w, dw, h_next, jd, jacobian, weights, norm_w, ord, ord_max):
     """
@@ -279,6 +297,7 @@ def dassl_stepper(F, t, w, dw, h_next, jd, jacobian, weights, norm_w, ord, ord_m
     @ord_max: ???
 
     ## Returns
+    status, err, w_c, dw_c, jd
     """
 
     n = len(w[0]) # Number of dependent variables.
@@ -312,11 +331,32 @@ def dassl_stepper(F, t, w, dw, h_next, jd, jacobian, weights, norm_w, ord, ord_m
     F_newt = lambda w_c: F(t_next, w_c, alpha*w_c + beta)
 
     # Define new Jacobian function of F_newt.
-    F_newt_jac_new = jacobian(t_next, w_0, dw_0, alpha)
+    F_newt_jac_new = lambda: jacobian(t_next, w_0, dw_0, alpha)
 
-    # TODO: call corrector here
+    # Run the corrector.
+    status, w_c, jd = dassl_corrector(F_newt, alpha, jd, F_newt_jac_new, w_0, norm_w)
 
-def dassl_corrector(F_newt, alpha_new, jd, jac_new, y0, norm_w):
+    # For more error calculations.
+    alpha_vec = np.zeros(ord+1)
+    for i in range(ord):
+        alpha_vec[i] = h_next / (t_next-t[-i - 1])
+    if len(t) >= ord+1:
+        t_0 = t[-ord - 1]
+    elif len(t) >= 2:
+        h_1 = t[1] - t[0]
+        t_0 = t[0] - h_1
+    else:
+        t_0 = t[0] - h_next
+    alpha_vec[ord] = h_next / (t_next-t_0)
+
+    # Do the error calculations.
+    alpha_0 = -np.sum(alpha_vec[:ord])
+    M = max(alpha_vec[ord], abs(alpha_vec[ord] + alpha_s - alpha_0))
+    err = norm_w(w_c-w_0) * M
+
+    return status, err, w_c, alpha*w_c + beta, jd
+
+def dassl_corrector(F_newt, alpha_new, jd, jac_new, w_0, norm_w):
     """
     Correct an initial DASSL guess.
 
@@ -332,9 +372,53 @@ def dassl_corrector(F_newt, alpha_new, jd, jac_new, y0, norm_w):
     """
 
     # Compute new Jacobian if needed.
-
-
+    if abs((jd.alpha-alpha_new) / (jd.alpha+alpha_new)) > 1/4:
+        jd = Jac_Data(alpha_new, jac_new())
         
+        # Run corrector.
+        f_newt = lambda w_c: -np.linalg.solve(jd.jac, F_newt)
+        status, w_c = dassl_newton(f_newt, w_0, norm_w)
+    else: # Use old Jacobian and see what happens.
+        # Convergence speed up factor.
+        c = 2*jd.alpha / (alpha_new+jd.alpha)
+
+        # Run corrector.
+        f_newt = lambda w_c: -c * np.linalg.solve(jd.jac, F_newt)
+        status, w_c = dassl_newton(f_newt, w_0, norm_w)
+
+        if status == -1: # Corrector didn't converge with old Jacobian so we
+                         # have to recompute :/.
+            jd = Jac_Data(alpha_new, jac_new())
+            f_newt = lambda w_c: -c * np.linalg.solve(jd.jac, F_newt)
+            status, w_c = dassl_newton(f_newt, w_0, norm_w)
+    
+    return status, w_c, jd
+
+def dassl_newton(f, w_0, norm_w, MAX_IT=4):
+    # First prediction and check
+    delta = f(w_0)
+    norm_1 = norm_w(delta)
+    w_n = w_0 + delta
+
+    if norm_1 < 100 * MACHINE_EPS * norm_w(w_0):
+        return (0, w_n)
+
+    # Iteration up to a maximum of MAXIT times
+    for i in range(1, MAX_IT + 1):
+        delta = f(w_n)
+        norm_n = norm_w(delta)
+        rho = (norm_n / norm_1) ** (1 / i)
+        w_n += delta
+
+        if rho > 0.9:
+            return (-1, w_0)  # Iteration failed to converge
+
+        err = rho / (1 - rho) * norm_n
+        if err < 1/3:
+            return (0, w_n)  # Successful convergence
+
+    # If the loop completes without returning, it failed to converge
+    return (-1, w_0)
         
 
 
