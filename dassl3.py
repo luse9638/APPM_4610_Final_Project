@@ -68,38 +68,6 @@ def interpolate_derivative_at(x, y, x_0):
 
     return p
 
-def last_elements(arr, n=1):
-    """
-    Returns the last 'n' non-None elements from a 1D numpy array or the last 'n' non-None rows from a 2D numpy array.
-    If there are fewer than 'n' non-None elements/rows, returns as many as are available.
-    """
-
-    # Predicates.
-    assert isinstance(arr, np.ndarray), "Input must be a numpy array"
-    assert n >= 1
-    assert n <= len(arr)
-
-    # Create a mask to filter out None elements or rows fully of None
-    if arr.ndim == 1:
-        # Filter out None values for 1D array
-        mask = ~np.equal(arr, None)
-    elif arr.ndim == 2:
-        # Filter out rows that are fully None for 2D array
-        mask = ~np.all(np.equal(arr, None), axis=1)
-    else:
-        raise ValueError("Array dimension higher than 2 is not supported")
-
-    # Get indices where mask is True
-    valid_indices = np.where(mask)[0]
-    
-    # Check if we have enough non-None elements/rows
-    if len(valid_indices) < n:
-        # If fewer than 'n', return all available non-None elements/rows
-        return arr[valid_indices]
-    else:
-        # Return the last 'n' non-None elements/rows
-        return arr[valid_indices[-n:]]
-
 def numerical_jacobian(F, rel_tol, abs_tol):
     def numjac(t, y, dy, alpha):
         ep = np.finfo(float).eps  # machine epsilon
@@ -173,18 +141,18 @@ def dassl_solve(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, 
     max_nodes = max_steps + 1
     n = len(y_0) # Number of dependent variables.
 
-    t = np.full(max_nodes, None)
-    t[0] = t_0
-    w = np.full((max_nodes, n), None) # Each row is all variables at a time step, 
+    #t = np.full(max_nodes, None)
+    t = np.array(t_0)
+    #w = np.full((max_nodes, n), None) # Each row is all variables at a time step, 
                                       # each column a variable at all time steps
-    w[0] = y_0
-    dw = np.full((max_nodes, n), None)
-    dw[0] = dy_0
-    h = np.full(max_nodes, None)
-    k = np.full(max_nodes, None)
+    w = np.array(y_0)
+    #dw = np.full((max_nodes, n), None)
+    dw = np.array(dy_0)
+    h = []
+    k = []
 
     # Time-stepping loop.
-    while last_elements(t) < t_f: # Continue time-stepping until we cover the interval.
+    while t[-1] < t_f: # Continue time-stepping until we cover the interval.
         # TODO: call dassl_step() here
         pass
 
@@ -222,16 +190,15 @@ def dassl_step(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, o
     max_nodes = max_steps + 1
     n = len(y_0)
 
-    t_out = np.full(max_nodes, None)
-    t_out[0] = t_0
-    w_out = np.full((max_nodes, n), None) # Each row is all variables at a time 
+    t_out = np.array(t_0)
+    #w_out = np.full((max_nodes, n), None) # Each row is all variables at a time 
                                           # step, each column a variable at all
                                           # time steps.
-    w_out[0] = y_0
-    dw_out = np.full((max_nodes, n), None)
-    dw_out[0] = dy_0
-    h_out = np.full(max_nodes, None)
-    k_out = np.full(max_nodes, None)
+    w_out = np.array(y_0)
+    #dw_out = np.full((max_nodes, n), None)
+    dw_out = np.array(dy_0)
+    h_out = []
+    k_out = []
 
     jd = Jac_Data(0, np.full((n, n), None))
     jacobian = numerical_jacobian(F, rel_tol, abs_tol)
@@ -247,22 +214,22 @@ def dassl_step(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, o
     norm_init = lambda v: dassl_norm(v, weights_init)
     _, _, _, dw_out[0], _ = dassl_stepper(F, t_out, w_out, dw_out, 10*MACHINE_EPS, jd, jacobian, weights_init, norm_init, 1, 1)
 
-    while last_elements(t_out) < t_f:
+    while t_out[-1] < t_f:
         # Set initial step size and check for errors.
         h_min = max(4*MACHINE_EPS, h_min)
-        h = min(h, h_max, t_f - last_elements(t_out))
+        h = min(h, h_max, t_f - t_out[-1])
 
         if h < h_min:
-            raise ValueError(f"Step size too small (h = {h} at t = {last_elements(t_out)})")
+            raise ValueError(f"Step size too small (h = {h} at t = {t_out[-1]})")
         elif num_fail >= (-2/3) * np.log(MACHINE_EPS):
-            raise ValueError(f"Too many ({num_fail}) steps in a row (h = {h} at t = {last_elements(t_out)})")
+            raise ValueError(f"Too many ({num_fail}) steps in a row (h = {h} at t = {t_out[-1]})")
         
         # Set error weights and norm function.
-        weights = dassl_weights(last_elements(w_out), rel_tol, abs_tol)
+        weights = dassl_weights(w_out[-1], rel_tol, abs_tol)
         norm_w = lambda v: dassl_norm(v, weights)
 
         # Take a time step!
-        status, err, w_n, dw_n, jd = dassl_stepper(F, t_out, w_out, dw_out, h, jd, jacobian, weights, norm_w, ord, ord_max)
+        status, err, w_jp1, dw_jp1, jd = dassl_stepper(F, t_out, w_out, dw_out, h, jd, jacobian, weights, norm_w, ord, ord_max)
 
         # Did the step work?
         if status == -1: # Newton iteration failed to converge. Reduce step size
@@ -275,9 +242,12 @@ def dassl_step(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, o
                       # order.
             num_fail += 1
             num_rejected += 1
-            # Temporarily add new step to t_out and w_out sicne they are needed
+            # Temporarily add new step to t_out and w_out since they are needed
             # by new_step_order()
-            
+            t_out = np.vstack((t_out, t_out[-1]+h))
+            w_out = np.vstack((w_out, w_jp1))
+
+            # TODO: call new_step_order()
 
 def dassl_stepper(F, t, w, dw, h_next, jd, jacobian, weights, norm_w, ord, ord_max):
     """
@@ -303,8 +273,8 @@ def dassl_stepper(F, t, w, dw, h_next, jd, jacobian, weights, norm_w, ord, ord_m
     n = len(w[0]) # Number of dependent variables.
 
     # Construct nodes for use in predictor polynomial.
-    t_nodes = last_elements(t, ord)
-    w_nodes = last_elements(w, ord)
+    t_nodes = t[-ord:]
+    w_nodes = t[-ord:]
 
     # Next time step.
     t_next = t_nodes[-1] + h_next
@@ -398,28 +368,70 @@ def dassl_newton(f, w_0, norm_w, MAX_IT=4):
     # First prediction and check
     delta = f(w_0)
     norm_1 = norm_w(delta)
-    w_n = w_0 + delta
+    w_jp1 = w_0 + delta
 
     if norm_1 < 100 * MACHINE_EPS * norm_w(w_0):
-        return (0, w_n)
+        return (0, w_jp1)
 
     # Iteration up to a maximum of MAXIT times
     for i in range(1, MAX_IT + 1):
-        delta = f(w_n)
+        delta = f(w_jp1)
         norm_n = norm_w(delta)
         rho = (norm_n / norm_1) ** (1 / i)
-        w_n += delta
+        w_jp1 += delta
 
         if rho > 0.9:
             return (-1, w_0)  # Iteration failed to converge
 
         err = rho / (1 - rho) * norm_n
         if err < 1/3:
-            return (0, w_n)  # Successful convergence
+            return (0, w_jp1)  # Successful convergence
 
     # If the loop completes without returning, it failed to converge
     return (-1, w_0)
-        
+
+def dassl_new_step_order(t, w, norm_w, err, num_fail, ord, max_ord):
+    """
+    Compute a new step size and order.
+    """
+
+    # Predicates.
+    assert len(t) == len(w)
+
+    available_steps = len(t) # Includes t_{j+1}
+
+    if num_fail >= 3:
+        # We've probably already decreaed the step size a lot, so now we'll
+        # reset the order.
+        r = 1/4
+        new_ord = 1
+    elif num_fail == 1 and available_steps == 1 and err > 1:
+        # w_j was accepted, first failure of w_{j+1}, reduce step size.
+        r = 1/4
+        new_ord = 1
+    elif num_fail == 0 and available_steps == 2 and err < 1:
+        # w_j was accepted, first attempt at w_{j+1}, increase order but keep
+        # current step size.
+        r = 1
+        new_ord = 2
+    elif available_steps < ord+2:
+        # Still at the first few steps, can't do Taylor estimates yet, so these
+        # adjustments are a little more crude.
+        if num_fail == 0:
+            # w_j was accepted, first attempt at w_{j+1}, increase order and
+            # step size.
+            r = (2*err + 1/10000) ** (-1 / (ord+1))
+            #new_ord = ord # what DASSL.jl has
+            new_ord = min(ord+1, max_ord)
+        else:
+            # w_{j+1} rejected, decrease step size and order.
+            r = 1/4
+            #new_ord = 1 # what DASSL.jl has
+            new_ord = max(1, ord-1)
+    else:
+        # We have enough steps to do Taylor estimates.
+        pass
+
 
 
 
