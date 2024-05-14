@@ -5,17 +5,24 @@ import scipy as sp
 
 
 # Constants ####################################################################
-MACHINE_EPS = np.finfo(np.float64).eps
+MACHINE_EPS = np.finfo(np.float64).eps # Machine epsilon.
 ################################################################################
 
 
 # Classes ######################################################################
 class Jac_Data:
+    """
+    Stores an alpha value and its associated jacobian matrix.
+
+    ## Parameters
+    @alpha: previous alpha value.
+    @jac: previous jacobian matrix.
+    """
     def __init__(self, alpha, jac):
         self.alpha = alpha
         self.jac = jac
     
-    def __repr__(self):
+    def __repr__(self): # Printing.
         return f"JacData(a = {self.alpha}, jac = {self.jac})"
 ################################################################################
 
@@ -23,77 +30,117 @@ class Jac_Data:
 # Subroutines ##################################################################
 def interpolate_at(x, y, x_0):
     """
-    Returns the value of the interpolation polynomial at the point x0 using 
-    Lagrange interpolation. x and y are numpy arrays containing the x and y 
-    coordinates of the interpolation points, respectively. x0 is the point at
-    which to evaluate the interpolation.
+    Returns the value of the interpolation polynomial at the point x_0 using 
+    Lagrange interpolation on nodes x and y.
+
+    ## Parameters
+    @x: numpy array
+        vector of x values.
+    @y: numpy array
+        vector of y values.
+    @x_0: numpy array
+        point to evaluate at.
+
+    ## Returns
+    double
     """
-    if len(x) != len(y):
-        raise ValueError("x and y must be of the same size.")
+    # Predicates.
+    assert len(x) == len(y)
 
     n = len(x)
     p = 0.0
-
     for i in range(n):
-        # Start Li with 1 (equivalent to one(T) in Julia)
-        Li = 1.0
+        L_i = 1
         for j in range(n):
             if j != i:
-                Li *= (x_0- x[j]) / (x[i] - x[j])
-
-        p += Li * y[i]
-
+                L_i *= (x_0-x[j]) / (x[i]-x[j])
+        p += L_i*y[i]
     return p
 
 def interpolate_derivative_at(x, y, x_0):
     """
     Returns the value of the derivative of the interpolation polynomial at the
-    point x0. x and y are numpy arrays containing the x and y coordinates of the
-    interpolation points, respectively. x0 is the point at which to evaluate the
-    derivative of the interpolation.
-    """
-    if len(x) != len(y):
-        raise ValueError("x and y must be of the same size.")
+    point x_0 using nodes x and y.
 
+    ## Parameters
+    @x: numpy array
+        vector of x values.
+    @y: numpy array
+        vector of y values.
+    @x_0: numpy array
+        point to evaluate at.
+
+    ## Returns
+    double
+    """
+    # Predicates.
+    assert len(x) == len(y)
+    
     n = len(x)
     p = 0.0
-
     for i in range(n):
-        dLi = 0.0
+        dL_i = 0
         for k in range(n):
             if k == i:
                 continue
-            dLi1 = 1.0
+            dL_i1 = 1
             for j in range(n):
                 if j == k or j == i:
                     continue
-                dLi1 *= (x_0 - x[j]) / (x[i] - x[j])
-            dLi += dLi1 / (x[i] - x[k])
-
-        p += dLi * y[i]
-
+                dL_i1 *= (x_0-x[j]) / (x[i]-x[j])
+            dL_i += dL_i1 / (x[i]-x[k])
+        p += dL_i*y[i]
     return p
 
 def interpolate_highest_derivative(x, y):
-    if len(x) != len(y):
-        raise ValueError("x and y have to be of the same size.")
+    """
+    For the interpolating polynomial with nodes x and y given by 
+    p(x) = a_{k-1}*x^{k-1} + a_k*x^k + ... + a_1*x + a_0, return its highest
+    derivative (the kth derivative), (k-1)!*a_{k-1}.
+
+    ## Parameters:
+    @x: numpy array
+        vector of x values.
+    @y: numpy array
+        vector of y values.
+
+    ## Returns
+    double
+    """
+    # Predicates.
+    assert len(x) == len(y)
 
     n = len(x)
     p = 0
-
     for i in range(n):
-        Li = 1
+        L_i = 1
         for j in range(n):
             if j == i:
                 continue
             else:
-                Li *= 1 / (x[i] - x[j])
-        p += Li * y[i]
-
-    return np.math.factorial(n - 1) * p
+                L_i *= 1 / (x[i]-x[j])
+        p += L_i*y[i]
+    return np.math.factorial(n-1) * p
 
 def numerical_jacobian(F, rel_tol, abs_tol):
-    def numjac(t, y, dy, alpha):
+    """
+    Creates a function that approximates and evaluates the Jacobian matrix for 
+    F(t, y, y') at a point using forward finite differences.
+
+    ## Parameters
+    @F: function
+        F(t, y, y').
+    @rel_tol: double
+        relative tolerance for error norm.
+    @abs_tol: double
+        absolute tolerance for error norm.
+
+    ## Returns
+    function
+        num_jac(t, y, dy, alpha)
+    """
+    
+    def num_jac(t, y, dy, alpha):
         print(f"numerical_jacobian(): t = {t}")
         print(f"numerical_jacobian(): y = {y}")
         print(f"numerical_jacobian(): dy = {dy}")
@@ -116,39 +163,87 @@ def numerical_jacobian(F, rel_tol, abs_tol):
         
         return jac
     
-    return numjac
+    return num_jac
 ################################################################################
 
 
 # DASSL ########################################################################
 def dassl_weights(v, rel_tol, abs_tol):
+    """
+    Create weights to use in the error norm based on relative and absolute
+    tolerances.
+
+    ## Parameters
+    @v: numpy array
+        vector of values.
+    @rel_tol: double
+        relative tolerance to use in error norm.
+    @abs_tol: double
+        absolute tolerance to use in error norm.
+
+    ## Returns
+    numpy array
+        vector of weights.
+    """
     return rel_tol*np.abs(v) + abs_tol
 
 def dassl_norm(v, weights):
+    """
+    Computes an error norm for a vector based on weights.
+
+    ## Parameters
+    @v: numpy array
+        vector to compute norm of.
+    @weights: numpy array
+        vector of weights.
+    
+    ## Returns
+    double
+        error norm.
+    """
     v_div_weights = v / weights
     norm_result = np.linalg.norm(v_div_weights)
     return norm_result / np.sqrt(len(v))
 
 def start_dassl(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, max_ord):
     """
-    Initialize DASSL to approximate the solution to F(t, y, dy) = 0 on interval 
-    [t_0, t_f] using initial data y_0 and dy_0.
+    Prepares to run DASSL to approximate the solution to F(t, y, dy) = 0 on
+    the interval [t_0, t_f] using initial data y_0 and dy_0.
 
     ## Parameters
-    @F: vector of n equations satisfying F_i(t, y, dy) = 0, 0 <= i <= n-1.
-    @t_0: left endpoint of interval.
-    @t_f: right endpoint of interval.
-    @y_0: vector of n initial values satisfying y_i(t_0) = y_0_i.
-    @dy_0: vector of n initial values satisfying y'_i(t_0) = dy_0_i.
-    @rel_tol: ???
-    @abs_tol: ???
-    @h_init: initial step size to use.
-    @h_min: lower bound on step size.
-    @h_max: upper bound on step size.
-    @max_ord: upper bound on order.
+    @F: function
+        vector of n functions satisfying F_i(t, y, dy) = 0, 0 <= i <= n-1.
+    @t_0: double
+        left endpoint of interval.
+    @t_f: double
+        right endpoint of interval.
+    @y_0: numpy array
+        vector of n initial values satisfying y_i(t_0) = y_0_i.
+    @dy_0: numpy array
+        vector of n initial values satisfying y'_i(t_0) = dy_0_i.
+    @rel_tol: double
+        relative tolerance to use in norm.
+    @abs_tol: double
+        absolute tolerance to use in norm.
+    @h_init: double
+        initial step size to use.
+    @h_min: double
+        lower bound on step size.
+    @h_max: double
+        upper bound on step size.
+    @max_ord: int
+        upper bound on order.
 
     ## Returns
-    (t, w, dw)
+    t, w, dw, k
+        t: numpy array
+            vector of time steps.
+        w: numpy array
+            vector of approximations to y.
+        dw: numpy array
+            vector of approximations to y'.
+        k: numpy array
+            vector of BDF orders used.
     """
 
     # Predicates.
@@ -160,23 +255,15 @@ def start_dassl(F, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, 
     assert max_ord >= 1
 
     # Initialize approximation vectors.
-    interval_len = t_f - t_0
-    max_steps = interval_len / h_min
-    max_nodes = max_steps + 1
-    n = len(y_0) # Number of dependent variables.
-
-    #t = np.full(max_nodes, None)
     t = np.array([t_0])
-    #w = np.full((max_nodes, n), None) # Each row is all variables at a time step, 
-                                      # each column a variable at all time steps
-    w = np.array([y_0])
-    #dw = np.full((max_nodes, n), None)
+    w = np.array([y_0]) # Each row stores all variables at a specific time step,
+                        # each column stores a single variable at all time steps.
     dw = np.array([dy_0])
-    h = []
     k = []
 
     # Run DASSL.
-    t, w, dw, k = dassl(F, t, w, dw, k, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, h_max, max_ord)
+    t, w, dw, k = dassl(F, t, w, dw, k, t_0, t_f, y_0, dy_0, rel_tol, abs_tol,\
+                        h_init, h_min, h_max, max_ord)
 
     return t, w, dw, k
 
@@ -185,82 +272,99 @@ def dassl(F, t, w, dw, k, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, 
     Run the DASSL algorithm.
 
     ## Parameters
-    @F: vector of n equations satisfying F_i(t, y, dy) = 0, 0 <= i <= n-1.
-    @t: output vector of time nodes.
-    @w: output vector of approximation nodes.
-    @dw: output vector of derivative approximation nodes.
-    @k: output vector of BDF orders.
-    @t_0: left endpoint of interval.
-    @t_f: right endpoint of interval.
-    @y_0: vector of initial values satisfying y_i(t_0) = y_0_i.
-    @dy_0: vector of initial values satisfying y'_i(t_0) = dy_0_i.
-    @rel_tol: ???
-    @abs_tol: ???
-    @h_init: initial step size to use.
-    @h_min: lower bound on step size.
-    @h_max: upper bound on step size.
-    @max_ord: upper bound on order.
+    @F: function
+        vector of n functions satisfying F_i(t, y, dy) = 0, 0 <= i <= n-1.
+    @t: numpy array
+        vector to store time steps.
+    @w: numpy array
+        vector to store approximations to y.
+    @dw: numpy array
+        vector to store approximations to y'.
+    @k: array
+        vector to BDF orders.
+    @t_0: double
+        left endpoint of interval.
+    @t_f: double
+        right endpoint of interval.
+    @y_0: numpy array
+        vector of n initial values satisfying y_i(t_0) = y_0_i.
+    @dy_0: numpy array
+        vector of n initial values satisfying y'_i(t_0) = dy_0_i.
+    @rel_tol: double
+        relative tolerance to use in norm.
+    @abs_tol: double
+        absolute tolerance to use in norm.
+    @h_init: double
+        initial step size to use.
+    @h_min: double
+        lower bound on step size.
+    @h_max: double
+        upper bound on step size.
+    @max_ord: int
+        upper bound on order.
 
     ## Returns
+    t, w, dw, k
+        t: numpy array
+            vector of time steps.
+        w: numpy array
+            vector of approximations to y.
+        dw: numpy array
+            vector of approximations to y'.
+        k: numpy array
+            vector of BDF orders used.
     """
 
-    # Predicates.
-    assert len(y_0) == len(dy_0)
-    assert t_0 < t_f
-    assert h_init >= h_min
-    assert h_init <= h_max
-    assert h_min < h_max
-    assert max_ord >= 1
-
-    # Initialize.
-    interval_len = t_f - t_0
-    max_steps = interval_len / h_min
-    max_nodes = max_steps + 1
+    # Initialize approximation vectors.
     n = len(y_0)
 
-    t_out = np.array([t_0])
-    #w_out = np.full((max_nodes, n), None) # Each row is all variables at a time 
-                                          # step, each column a variable at all
-                                          # time steps.
-    w_out = np.array([y_0])
-    #print(f"dassl(): w_out = {w_out}")
-    #dw_out = np.full((max_nodes, n), None)
-    dw_out = np.array([dy_0])
-    h_out = []
-    k_out = []
+    t_save = np.array([t_0])
+    w_save = np.array([y_0]) # Each row stores all variables at a specific time step,
+                            # step, each column stores a single variable at all
+                            # time steps.
+    dw_save = np.array([dy_0])
 
+    # Used to store previous jacobian and alpha value.
     jd = Jac_Data(0, np.full((n, n), None))
+
+    # Create the jacobian function.
     jacobian = numerical_jacobian(F, rel_tol, abs_tol)
 
+    # Initial order and step size.
     ord = 1
     h = h_init
-
+    
+    # How many steps have failed and how many have been rejected.
     num_rejected = 0
     num_fail = 0
 
-    # Improve initial derivative guess.
+    # Improve initial derivative guess by running a single step.
     weights_init = dassl_weights(y_0, 1, 1)
     norm_init = lambda v: dassl_norm(v, weights_init)
-    _, _, _, dw_out[0], _ = dassl_stepper(F, t_out, w_out, dw_out, 10*MACHINE_EPS, jd, jacobian, weights_init, norm_init, 1, 1)
+    _, _, _, dw_save[0], _ = dassl_stepper(F, t_save, w_save, dw_save,\
+                                          10*MACHINE_EPS, jd, jacobian,\
+                                            weights_init, norm_init, 1, 1)
 
-    while t_out[-1] < t_f:
+    # Time stepping loop.
+    while t_save[-1] < t_f:
         # Set initial step size and check for errors.
         h_min = max(4*MACHINE_EPS, h_min)
-        h = min(h, h_max, t_f - t_out[-1])
-
+        h = min(h, h_max, t_f - t_save[-1])
         if h < h_min:
-            raise ValueError(f"Step size too small (h = {h} at t = {t_out[-1]})")
+            raise ValueError(f"ERROR IN dassl(): STEP SIZE TOO SMALL (h = {h} AT t = {t_save[-1]})")
         elif num_fail >= (-2/3) * np.log(MACHINE_EPS):
-            raise ValueError(f"Too many ({num_fail}) steps in a row (h = {h} at t = {t_out[-1]})")
+            raise ValueError(f"ERROR IN dassl(): TOO MANY FAILED STEPS ({num_fail}) IN A ROW (h = {h} at t = {t_save[-1]})")
         
         # Set error weights and norm function.
-        weights = dassl_weights(w_out[-1], rel_tol, abs_tol)
+        weights = dassl_weights(w_save[-1], rel_tol, abs_tol)
         norm_w = lambda v: dassl_norm(v, weights)
 
         # Take a time step!
-        status, err, w_jp1, dw_jp1, jd = dassl_stepper(F, t_out, w_out, dw_out, h, jd, jacobian, weights, norm_w, ord, max_ord)
+        status, err, w_jp1, dw_jp1, jd = dassl_stepper(F, t_save, w_save, dw_save,\
+                                                       h, jd, jacobian, weights,\
+                                                        norm_w, ord, max_ord)
 
-        # Did the step work?
+        # Check if Newton's converged or not.
         if status == -1: # Newton iteration failed to converge. Reduce step size
                          # and retry.
             num_fail += 1
@@ -272,19 +376,19 @@ def dassl(F, t, w, dw, k, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, 
             num_fail += 1
             num_rejected += 1
             
-            # Temporarily add new step to t_out and w_out since they are needed
-            # by new_step_order()
-            t_out = np.append(t_out, t_out[-1] + h)
-            w_out = np.vstack((w_out, w_jp1))
+            # Temporarily add the (rejected) new step to t_save and w_save since 
+            # it is needed by new_step_order().
+            t_save = np.append(t_save, t_save[-1] + h)
+            w_save = np.vstack((w_save, w_jp1))
 
             # Determine new step size and order.
-            r, new_ord = dassl_new_step_order(t_out, w_out, norm_w, err, num_fail, ord, max_ord)
+            r, new_ord = dassl_new_step_order(t_save, w_save, norm_w, err, num_fail, ord, max_ord)
 
-            # Remove the temporary steps from before.
-            t_out = t_out[:-1]
-            w_out = w_out[:-1]
+            # Remove the temporary (rejected) step that was added from before.
+            t_save = t_save[:-1]
+            w_save = w_save[:-1]
 
-            # Change step size and order
+            # Change step size and order.
             h *= r
             ord = new_ord
             continue
@@ -292,57 +396,70 @@ def dassl(F, t, w, dw, k, t_0, t_f, y_0, dy_0, rel_tol, abs_tol, h_init, h_min, 
             num_fail = 0
 
             # Save the results.
-            t_out = np.append(t_out, t_out[-1] + h)
-            w_out = np.vstack((w_out, w_jp1))
-            dw_out = np.vstack((dw_out, dw_jp1))
+            t_save = np.append(t_save, t_save[-1] + h)
+            w_save = np.vstack((w_save, w_jp1))
+            dw_save = np.vstack((dw_save, dw_jp1))
 
             # Remove old results.
-            if len(t_out) > ord+3:
-                t_out = t_out[1:]
-                w_out = w_out[1:]
-                dw_out = dw_out[1:]
+            if len(t_save) > ord+3:
+                t_save = t_save[1:]
+                w_save = w_save[1:]
+                dw_save = dw_save[1:]
             
             # Add results to the output vectors.
-            t = np.append(t, t_out[-1])
-            w = np.vstack((w, w_out[-1]))
-            dw = np.vstack((dw, dw_out[-1]))
+            t = np.append(t, t_save[-1])
+            w = np.vstack((w, w_save[-1]))
+            dw = np.vstack((dw, dw_save[-1]))
             k = np.append(k, ord)
 
             # Determine new step size and order.
-            r, new_ord = dassl_new_step_order(t_out, w_out, norm_w, err, num_fail, ord, max_ord)
+            r, new_ord = dassl_new_step_order(t_save, w_save, norm_w, err, num_fail, ord, max_ord)
             h *= r
             ord = new_ord
 
-    return t, w, dw, k
+    return t, w, dw, np.array(k)
             
 def dassl_stepper(F, t, w, dw, h_next, jd, jacobian, weights, norm_w, ord, max_ord):
     """
     Runs a single time-step of the DASSL algorithm.
 
     ## Parameters
-    @F: vector of n equations satisfying F_i(t, y, dy) = 0, 0 <= i <= n-1.
-    @t: vector of time nodes.
-    @w: ???
-    @dw: ???
-    @h_next: ???
-    @jd: ???
-    @jacobian: ???
-    @weights: ???
-    @norm_w: ???
-    @ord: ???
-    @max_ord: ???
+    @F: function
+        vector of n functions satisfying F_i(t, y, dy) = 0, 0 <= i <= n-1.
+    @t: numpy array
+        vector of previous time steps.
+    @w: numpy array
+        vector of previous approximations to y.
+    @dw: numpy array
+        vector of previous approximations to y'.
+    @h_next: double
+        time step to use.
+    @jd: Jac_Data
+        previous alpha and jacobian matrix.
+    @jacobian: function
+        computes current jacobian matrix.
+    @weights: numpy array
+        vector of weights to use for error norm.
+    @norm_w: function
+        function to compute error norm of vector.
+    @ord: int
+        order to use.
+    @max_ord: int
+        upper bound on order.
 
     ## Returns
     status, err, w_c, dw_c, jd
+        status: int
+            -1 if Newton's method failed to converge, 0 otherwise.
+        err: double
+            estimate of LTE / interpolation error.
+        w_c: numpy array
+            approximation to y at current time step.
+        dw_c: numpy array
+            approximation to y' at current time step.
+        jd: Jac_Data
+            Jacobian data used to create approximation.
     """
-
-    if w.ndim == 1:
-        n = len(w) # Number of dependent variables.
-    elif w.ndim == 2:
-        n = len(w[0])
-    else:
-        raise ValueError(f"dassl_stepper(): w = {w} is not 1 or 2 dimensional")
-
     # Construct nodes for use in predictor polynomial.
     print(f"dassl_stepper(): t = {t}")
     t_nodes = t[-ord:]
@@ -353,7 +470,6 @@ def dassl_stepper(F, t, w, dw, h_next, jd, jacobian, weights, norm_w, ord, max_o
     t_next = t_nodes[-1] + h_next
 
     # Used in error calculations.
-    #alpha_s = -sum(1/j for j in range(1, ord+2)) # j in [1, ord+1]
     alpha_s = -sum(1/j for j in range(1, ord+1)) # j in [1, ord]
 
     # Create initial guesses and calculate alpha and beta.
@@ -403,13 +519,22 @@ def dassl_stepper(F, t, w, dw, h_next, jd, jacobian, weights, norm_w, ord, max_o
 
 def dassl_corrector(F_newt, alpha_new, jd, jac_new, w_0, norm_w):
     """
-    Correct an initial DASSL guess.
+    Correct an initial DASSL guess using Newton's method.
 
     ## Parameters
-    @F_newt: ???
-    @alpha_new: ???
-    @jd: ???
-    @jac_new: ???
+    @F_newt: function
+        function to run Newton's method on.
+    @alpha_new: double
+        alpha value to use.
+    @jd: Jac_Data
+        previous alpha value and jacobian matrix.
+    @jac_new: function
+        function to compute current jacobian matrix.
+    @w_0: numpy array
+        initial guess.
+    @norm_w: function
+        function to compute error norm of vector.
+
     @y0: ???
     @norm_w: ???
 
